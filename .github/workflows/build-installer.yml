@@ -1,0 +1,44 @@
+name: Build Windows Installer
+
+on:
+  # Run manually from the Actions tab — click "Run workflow"
+  workflow_dispatch:
+
+  # Also run automatically when you push changes to installer.pyw
+  push:
+    paths:
+      - 'installer.pyw'
+      - 'requirements.txt'
+      - '.github/workflows/build-installer.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build installer EXE
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "MediaDownloader-Setup" `
+            installer.pyw
+
+      - name: Upload EXE as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MediaDownloader-Setup
+          path: dist/MediaDownloader-Setup.exe
+          # Artifact is kept for 30 days
+          retention-days: 30
