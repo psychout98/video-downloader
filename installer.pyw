@@ -4,9 +4,12 @@ Media Downloader — Windows Installer / Setup Wizard
 Run with:  python installer.pyw
 Compile to .exe with:  build_installer.bat
 
+The EXE can be run from anywhere — the user selects the project folder
+on the first page of the wizard.
+
 Wizard pages
 ------------
-1. Welcome
+1. Welcome    (includes project folder picker)
 2. API Keys   (TMDB, Real-Debrid, optional webhook secret)
 3. Directories (primary NVMe + archive SATA paths)
 4. Playback   (MPC-BE exe path, watch threshold)
@@ -23,62 +26,55 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 IS_WINDOWS = sys.platform == "win32"
-# Safe creationflags — Windows-only constants evaluated lazily so the module
-# loads without error on macOS/Linux.
-_DETACHED = subprocess.CREATE_NEW_CONSOLE if IS_WINDOWS else 0
+_DETACHED  = subprocess.CREATE_NEW_CONSOLE if IS_WINDOWS else 0
 
-# ── Locate project root ───────────────────────────────────────────────────────
-# Walk up from the EXE / script until we find run_server.bat, which anchors
-# the project root.  This handles EXEs placed in dist\ or any subdirectory.
-def _find_root() -> Path:
+
+# ── Guess a sensible default project folder ───────────────────────────────────
+def _guess_root() -> str:
+    """Best-effort guess at the project folder — user can always correct it."""
     if getattr(sys, "frozen", False):
-        start = Path(sys.executable).parent   # directory containing the EXE
+        start = Path(sys.executable).parent
     else:
         start = Path(__file__).resolve().parent
 
+    # Walk up looking for run_server.bat
     candidate = start
-    for _ in range(4):          # search up to 4 levels up
+    for _ in range(4):
         if (candidate / "run_server.bat").exists():
-            return candidate
+            return str(candidate)
         candidate = candidate.parent
 
-    # Fallback: just use whatever directory the EXE / script is in
-    return start
-
-ROOT = _find_root()
-
-ENV_FILE      = ROOT / ".env"
-REQUIREMENTS  = ROOT / "requirements.txt"
-VBS_LAUNCHER  = ROOT / "silent_launch.vbs"
+    return str(start)   # Fall back to EXE location — user will need to correct
 
 
 # ── Defaults (pre-filled in the wizard) ──────────────────────────────────────
 DEFAULTS = {
-    "TMDB_API_KEY":        "",
-    "REAL_DEBRID_API_KEY": "",
-    "SECRET_KEY":          "change-me",
-    "MOVIES_DIR":          str(Path.home() / "Media" / "Movies"),
-    "TV_DIR":              str(Path.home() / "Media" / "TV Shows"),
-    "ANIME_DIR":           str(Path.home() / "Media" / "Anime"),
-    "DOWNLOADS_DIR":       str(Path.home() / "Media" / "Downloads" / ".staging"),
-    "POSTERS_DIR":         str(Path.home() / "Media" / "Posters"),
-    "MOVIES_DIR_ARCHIVE":  r"D:\Media\Movies",
-    "TV_DIR_ARCHIVE":      r"D:\Media\TV Shows",
-    "ANIME_DIR_ARCHIVE":   r"D:\Media\Anime",
-    "MPC_BE_EXE":          r"C:\Program Files\MPC-BE x64\mpc-be64.exe",
-    "WATCH_THRESHOLD":     "0.85",
-    "PORT":                "8000",
-    "HOST":                "0.0.0.0",
+    "TMDB_API_KEY":             "",
+    "REAL_DEBRID_API_KEY":      "",
+    "SECRET_KEY":               "change-me",
+    "MOVIES_DIR":               str(Path.home() / "Media" / "Movies"),
+    "TV_DIR":                   str(Path.home() / "Media" / "TV Shows"),
+    "ANIME_DIR":                str(Path.home() / "Media" / "Anime"),
+    "DOWNLOADS_DIR":            str(Path.home() / "Media" / "Downloads" / ".staging"),
+    "POSTERS_DIR":              str(Path.home() / "Media" / "Posters"),
+    "MOVIES_DIR_ARCHIVE":       r"D:\Media\Movies",
+    "TV_DIR_ARCHIVE":           r"D:\Media\TV Shows",
+    "ANIME_DIR_ARCHIVE":        r"D:\Media\Anime",
+    "MPC_BE_EXE":               r"C:\Program Files\MPC-BE x64\mpc-be64.exe",
+    "WATCH_THRESHOLD":          "0.85",
+    "PORT":                     "8000",
+    "HOST":                     "0.0.0.0",
     "MAX_CONCURRENT_DOWNLOADS": "2",
-    "MPC_BE_URL":          "http://127.0.0.1:13579",
+    "MPC_BE_URL":               "http://127.0.0.1:13579",
 }
 
 
-def _load_existing_env():
-    """Read existing .env values so re-running the wizard keeps prior config."""
+# ── Helper: read existing .env from a given root ──────────────────────────────
+def _load_existing_env(root: Path) -> dict:
     d = {}
-    if ENV_FILE.exists():
-        with open(ENV_FILE, encoding="utf-8") as f:
+    env_file = root / ".env"
+    if env_file.exists():
+        with open(env_file, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -88,40 +84,34 @@ def _load_existing_env():
     return d
 
 
-def _write_env(values: dict):
-    """Write values to .env, preserving any existing keys not in values."""
-    existing = _load_existing_env()
+def _write_env(root: Path, values: dict):
+    """Write values to .env inside root, preserving unknown keys."""
+    existing = _load_existing_env(root)
     merged   = {**DEFAULTS, **existing, **values}
     lines    = []
     for k, v in merged.items():
-        # Quote values that contain spaces or special chars
         if " " in v or "#" in v:
             v = f'"{v}"'
         lines.append(f"{k}={v}")
-    with open(ENV_FILE, "w", encoding="utf-8") as f:
+    env_file = root / ".env"
+    with open(env_file, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
 
-def _find_python() -> str:
-    """Return a usable Python executable for running pip / uvicorn.
-
-    When frozen as a PyInstaller EXE, sys.executable IS the installer EXE,
-    so we must locate the real Python separately — otherwise pip launch would
-    open a second copy of the wizard.
-    """
+# ── Find a real Python interpreter ───────────────────────────────────────────
+def _find_python(root: Path) -> str:
+    """Return a usable Python executable (never the frozen EXE itself)."""
     if not getattr(sys, "frozen", False):
-        # Running as a plain .py / .pyw — sys.executable is the real Python.
-        return sys.executable
+        return sys.executable      # plain .py / .pyw — sys.executable is real Python
 
-    # ── Frozen EXE path ──────────────────────────────────────────────────
     import shutil
 
-    # 1. Prefer the project's own venv so dependencies land in the right place.
-    venv_py = ROOT / ".venv" / "Scripts" / "python.exe"
+    # 1. Project venv (preferred — deps land in the right place)
+    venv_py = root / ".venv" / "Scripts" / "python.exe"
     if venv_py.exists():
         return str(venv_py)
 
-    # 2. Fall back to any Python on the system PATH.
+    # 2. System Python on PATH
     for name in ("python", "python3", "py"):
         found = shutil.which(name)
         if found:
@@ -129,23 +119,21 @@ def _find_python() -> str:
 
     raise RuntimeError(
         "Python not found.\n\n"
-        "Install Python 3.10+ from python.org, make sure 'Add Python to PATH' "
-        "is checked, then re-run this installer."
+        "Install Python 3.10+ from python.org, tick 'Add Python to PATH', "
+        "then re-run this installer."
     )
 
 
-def _pip_install(log_widget, done_callback, python: str = None):
-    """Run pip install -r requirements.txt in a background thread."""
-    if python is None:
-        python = _find_python()
-    cmd = [python, "-m", "pip", "install", "-r", str(REQUIREMENTS), "--upgrade"]
+# ── pip install ───────────────────────────────────────────────────────────────
+def _pip_install(root: Path, python: str, log_widget, done_callback):
+    requirements = root / "requirements.txt"
+    cmd = [python, "-m", "pip", "install", "-r", str(requirements), "--upgrade"]
 
     def _run():
         try:
             proc = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
             )
@@ -168,36 +156,24 @@ def _append_log(widget, text):
     widget.configure(state="disabled")
 
 
-def _create_task_scheduler(port: str, log_widget, done_callback):
-    """Create a Windows Task Scheduler task that starts the server at logon."""
-    python = _find_python()
-    vbs    = str(VBS_LAUNCHER)
-    task_name = "MediaDownloader"
+# ── Task Scheduler ────────────────────────────────────────────────────────────
+def _create_task_scheduler(root: Path, port: str, log_widget, done_callback):
+    vbs_path = root / "silent_launch.vbs"
+    if not vbs_path.exists():
+        _write_vbs_launcher(root)
 
-    # Build the VBS launcher if it doesn't exist
-    if not VBS_LAUNCHER.exists():
-        _write_vbs_launcher(port)
+    xml_path = root / "task_def.xml"
+    _write_task_xml(root, xml_path, str(vbs_path))
 
-    # schtasks /Create command
-    xml_path = ROOT / "task_def.xml"
-    _write_task_xml(xml_path, vbs)
-
-    cmd = [
-        "schtasks", "/Create",
-        "/TN", task_name,
-        "/XML", str(xml_path),
-        "/F",  # overwrite if exists
-    ]
+    cmd = ["schtasks", "/Create", "/TN", "MediaDownloader", "/XML", str(xml_path), "/F"]
 
     def _run():
         try:
             result = subprocess.run(
-                cmd,
-                capture_output=True, text=True,
+                cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
             )
-            out = result.stdout + result.stderr
-            _append_log(log_widget, out + "\n")
+            _append_log(log_widget, result.stdout + result.stderr + "\n")
             ok = result.returncode == 0
         except Exception as exc:
             _append_log(log_widget, f"Task Scheduler error: {exc}\n")
@@ -210,25 +186,22 @@ def _create_task_scheduler(port: str, log_widget, done_callback):
     threading.Thread(target=_run, daemon=True).start()
 
 
-def _write_vbs_launcher(port: str):
-    """Write / update silent_launch.vbs with the correct Python path."""
-    python  = _find_python()
-    run_bat = ROOT / "run_server.bat"
-    content = f"""' Silent launcher — runs run_server.bat without a console window
-Set sh = CreateObject("WScript.Shell")
-sh.Run "cmd /c """ + str(run_bat).replace("\\", "\\\\") + """", 0, False
-"""
-    with open(VBS_LAUNCHER, "w", encoding="utf-8") as f:
+def _write_vbs_launcher(root: Path):
+    run_bat = root / "run_server.bat"
+    content = (
+        "' Silent launcher — runs run_server.bat without a console window\n"
+        "Set sh = CreateObject(\"WScript.Shell\")\n"
+        f"sh.Run \"cmd /c \\\"{run_bat}\\\"\", 0, False\n"
+    )
+    with open(root / "silent_launch.vbs", "w", encoding="utf-8") as f:
         f.write(content)
 
 
-def _write_task_xml(xml_path: Path, vbs_path: str):
-    vbs_escaped = str(vbs_path).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+def _write_task_xml(root: Path, xml_path: Path, vbs_path: str):
+    def _esc(s): return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
     xml = f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <Triggers>
-    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
-  </Triggers>
+  <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
   <Principals>
     <Principal id="Author">
       <LogonType>InteractiveToken</LogonType>
@@ -240,13 +213,12 @@ def _write_task_xml(xml_path: Path, vbs_path: str):
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">
     <Exec>
       <Command>wscript.exe</Command>
-      <Arguments>//nologo "{vbs_escaped}"</Arguments>
-      <WorkingDirectory>{str(ROOT).replace("&", "&amp;")}</WorkingDirectory>
+      <Arguments>//nologo "{_esc(vbs_path)}"</Arguments>
+      <WorkingDirectory>{_esc(str(root))}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>"""
@@ -268,11 +240,11 @@ MUTED    = "#7878a0"
 SUCCESS  = "#4caf7d"
 ERROR    = "#e05555"
 
-FONT_BODY   = ("Segoe UI", 10)
-FONT_LABEL  = ("Segoe UI", 9)
-FONT_TITLE  = ("Segoe UI", 14, "bold")
-FONT_SUB    = ("Segoe UI", 10, "bold")
-FONT_MONO   = ("Consolas", 9)
+FONT_BODY  = ("Segoe UI", 10)
+FONT_LABEL = ("Segoe UI", 9)
+FONT_TITLE = ("Segoe UI", 14, "bold")
+FONT_SUB   = ("Segoe UI", 10, "bold")
+FONT_MONO  = ("Consolas", 9)
 
 
 class InstallerApp(tk.Tk):
@@ -282,54 +254,56 @@ class InstallerApp(tk.Tk):
         self.configure(bg=BG)
         self.resizable(False, False)
 
-        # Center window
-        w, h = 680, 560
+        w, h = 680, 580
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
-        # Load existing env
-        existing = _load_existing_env()
-        self.vals = {k: tk.StringVar(value=existing.get(k, v)) for k, v in DEFAULTS.items()}
+        # ── Project root — the single source of truth ─────────────────────
+        # User sets this on the Welcome page; everything else uses it.
+        self.root_var = tk.StringVar(value=_guess_root())
+
+        # Load existing .env from the guessed root (may be empty)
+        self._reload_env_defaults()
 
         self._pages: list[tk.Frame] = []
         self._current = 0
         self._install_ok = False
 
-        # ── Header ──────────────────────────────────────────────────────────
+        # ── Header ────────────────────────────────────────────────────────
         header = tk.Frame(self, bg=SURFACE, height=64)
         header.pack(fill="x")
         header.pack_propagate(False)
         tk.Label(header, text="▣ Media Downloader", bg=SURFACE, fg=ACCENT,
                  font=("Segoe UI", 16, "bold")).pack(side="left", padx=20)
-        self._step_label = tk.Label(header, text="Step 1 of 5", bg=SURFACE, fg=MUTED, font=FONT_LABEL)
+        self._step_label = tk.Label(header, text="Step 1 of 5", bg=SURFACE,
+                                    fg=MUTED, font=FONT_LABEL)
         self._step_label.pack(side="right", padx=20)
 
-        # ── Separator ───────────────────────────────────────────────────────
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
 
-        # ── Page container ───────────────────────────────────────────────────
         self._container = tk.Frame(self, bg=BG)
         self._container.pack(fill="both", expand=True, padx=30, pady=20)
 
-        # ── Footer nav ───────────────────────────────────────────────────────
         tk.Frame(self, bg=BORDER, height=1).pack(fill="x")
         footer = tk.Frame(self, bg=SURFACE, height=52)
         footer.pack(fill="x")
         footer.pack_propagate(False)
 
-        self._btn_back = tk.Button(footer, text="← Back", command=self._go_back,
+        self._btn_back = tk.Button(
+            footer, text="← Back", command=self._go_back,
             bg=SURFACE2, fg=MUTED, relief="flat", font=FONT_BODY,
-            activebackground=SURFACE, activeforeground=TEXT, cursor="hand2",
-            padx=16, pady=6)
+            activebackground=SURFACE, activeforeground=TEXT,
+            cursor="hand2", padx=16, pady=6)
         self._btn_back.pack(side="left", padx=16, pady=10)
 
-        self._btn_next = tk.Button(footer, text="Next →", command=self._go_next,
-            bg=ACCENT, fg="#111", relief="flat", font=("Segoe UI", 10, "bold"),
-            activebackground="#c27b00", activeforeground="#111", cursor="hand2",
-            padx=20, pady=6)
+        self._btn_next = tk.Button(
+            footer, text="Next →", command=self._go_next,
+            bg=ACCENT, fg="#111", relief="flat",
+            font=("Segoe UI", 10, "bold"),
+            activebackground="#c27b00", activeforeground="#111",
+            cursor="hand2", padx=20, pady=6)
         self._btn_next.pack(side="right", padx=16, pady=10)
 
-        # ── Build pages ──────────────────────────────────────────────────────
         self._pages = [
             self._page_welcome(),
             self._page_api_keys(),
@@ -340,20 +314,31 @@ class InstallerApp(tk.Tk):
         ]
         self._show_page(0)
 
-    # ─── Navigation ──────────────────────────────────────────────────────────
+    def _reload_env_defaults(self):
+        """(Re-)initialise self.vals from the current root's .env."""
+        root = Path(self.root_var.get())
+        existing = _load_existing_env(root)
+        if hasattr(self, "vals"):
+            for k, v in DEFAULTS.items():
+                self.vals[k].set(existing.get(k, v))
+        else:
+            self.vals = {k: tk.StringVar(value=existing.get(k, v))
+                         for k, v in DEFAULTS.items()}
+
+    # ── Navigation ────────────────────────────────────────────────────────────
 
     def _show_page(self, idx):
         for p in self._pages:
             p.pack_forget()
         self._pages[idx].pack(fill="both", expand=True)
         self._current = idx
-        total = len(self._pages) - 1  # "Done" is not a real step
+        total = len(self._pages) - 1
         self._step_label.configure(text=f"Step {min(idx+1, total)} of {total}")
         self._btn_back.configure(state="normal" if idx > 0 else "disabled")
-        if idx == len(self._pages) - 2:  # last real step = Install
+        if idx == len(self._pages) - 2:
             self._btn_next.configure(text="Install ✓", bg=SUCCESS, fg="#fff",
                                      activebackground="#3a9060")
-        elif idx == len(self._pages) - 1:  # Done page
+        elif idx == len(self._pages) - 1:
             self._btn_next.configure(text="Finish", bg=ACCENT, fg="#111",
                                      activebackground="#c27b00")
             self._btn_back.configure(state="disabled")
@@ -362,10 +347,14 @@ class InstallerApp(tk.Tk):
                                      activebackground="#c27b00")
 
     def _go_next(self):
-        if self._current == len(self._pages) - 1:  # Done
+        if self._current == 0:
+            # Validate project folder before leaving Welcome page
+            if not self._validate_root():
+                return
+        if self._current == len(self._pages) - 1:
             self.destroy()
             return
-        if self._current == len(self._pages) - 2:  # Install page
+        if self._current == len(self._pages) - 2:
             self._run_install()
             return
         self._show_page(self._current + 1)
@@ -374,11 +363,32 @@ class InstallerApp(tk.Tk):
         if self._current > 0:
             self._show_page(self._current - 1)
 
-    # ─── Page builders ───────────────────────────────────────────────────────
+    def _validate_root(self) -> bool:
+        """Check the project folder contains run_server.bat before continuing."""
+        root = Path(self.root_var.get().strip())
+        if not root.exists():
+            messagebox.showerror(
+                "Folder not found",
+                f"The folder does not exist:\n{root}\n\n"
+                "Please click Browse and select the Media Downloader project folder."
+            )
+            return False
+        if not (root / "run_server.bat").exists():
+            messagebox.showerror(
+                "Wrong folder",
+                f"run_server.bat was not found in:\n{root}\n\n"
+                "Please select the folder that contains run_server.bat, "
+                "requirements.txt, and the server\\ sub-folder."
+            )
+            return False
+        # Reload .env values from the confirmed root
+        self._reload_env_defaults()
+        return True
+
+    # ── Field helpers ─────────────────────────────────────────────────────────
 
     def _make_page(self) -> tk.Frame:
-        f = tk.Frame(self._container, bg=BG)
-        return f
+        return tk.Frame(self._container, bg=BG)
 
     def _lbl(self, parent, text, big=False, muted=False):
         font = FONT_TITLE if big else (FONT_SUB if not muted else FONT_LABEL)
@@ -392,8 +402,7 @@ class InstallerApp(tk.Tk):
         row.pack(fill="x", pady=4)
         tk.Label(row, text=label, bg=BG, fg=MUTED, font=FONT_LABEL,
                  anchor="w", width=24).pack(side="left")
-        show = "*" if password else ""
-        entry = tk.Entry(row, textvariable=var, show=show,
+        entry = tk.Entry(row, textvariable=var, show="*" if password else "",
                          bg=SURFACE2, fg=TEXT, insertbackground=TEXT,
                          relief="flat", font=FONT_BODY, bd=4,
                          highlightthickness=1, highlightbackground=BORDER,
@@ -424,86 +433,111 @@ class InstallerApp(tk.Tk):
         if p:
             var.set(p)
 
-    # ─── Page 0: Welcome ─────────────────────────────────────────────────────
+    # ── Page 0: Welcome ───────────────────────────────────────────────────────
 
     def _page_welcome(self):
         p = self._make_page()
-        tk.Label(p, text="▣", bg=BG, fg=ACCENT, font=("Segoe UI", 48)).pack(pady=(10, 4))
+        tk.Label(p, text="▣", bg=BG, fg=ACCENT,
+                 font=("Segoe UI", 40)).pack(pady=(4, 2))
         self._lbl(p, "Welcome to Media Downloader", big=True)
-        tk.Label(p, bg=BG, fg=MUTED, font=FONT_BODY, justify="left", wraplength=580,
-                 text=(
-                     "This wizard will help you configure and install Media Downloader "
-                     "on your Windows HTPC.\n\n"
-                     "You will need:\n"
-                     "  • A TMDB API key  (free at themoviedb.org)\n"
-                     "  • A Real-Debrid API key  (paid service, realdebrid.com)\n"
-                     "  • MPC-BE installed with its web interface enabled\n\n"
-                     "The wizard will write your .env configuration file, install Python "
-                     "dependencies, and optionally register a Windows Task Scheduler task "
-                     "so the server starts automatically at login."
-                 )).pack(anchor="w", pady=(8, 0))
 
-        def _open_tmdb():
-            webbrowser.open("https://www.themoviedb.org/settings/api")
-        def _open_rd():
-            webbrowser.open("https://real-debrid.com/apitoken")
+        # ── Project folder (the critical field) ──────────────────────────
+        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=8)
+        tk.Label(p, bg=BG, fg=TEXT, font=FONT_SUB,
+                 text="Project Folder").pack(anchor="w")
+        tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL, wraplength=580,
+                 text="Select the folder where you extracted Media Downloader "
+                      "(it contains run_server.bat and the server\\ sub-folder)."
+                 ).pack(anchor="w", pady=(2, 6))
+
+        folder_row = tk.Frame(p, bg=BG)
+        folder_row.pack(fill="x")
+        folder_entry = tk.Entry(
+            folder_row, textvariable=self.root_var,
+            bg=SURFACE2, fg=TEXT, insertbackground=TEXT,
+            relief="flat", font=FONT_BODY, bd=4,
+            highlightthickness=1, highlightbackground=BORDER,
+            highlightcolor=ACCENT)
+        folder_entry.pack(side="left", fill="x", expand=True)
+        tk.Button(folder_row, text="Browse…", bg=ACCENT, fg="#111",
+                  relief="flat", font=FONT_LABEL, cursor="hand2",
+                  padx=10, pady=4,
+                  command=self._browse_root
+                  ).pack(side="left", padx=(6, 0))
+
+        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=8)
+
+        tk.Label(p, bg=BG, fg=MUTED, font=FONT_BODY, justify="left", wraplength=580,
+                 text="You will also need:\n"
+                      "  • A TMDB API key  (free — themoviedb.org)\n"
+                      "  • A Real-Debrid API key  (paid — realdebrid.com)\n"
+                      "  • MPC-BE with its web interface enabled on port 13579"
+                 ).pack(anchor="w")
 
         link_row = tk.Frame(p, bg=BG)
-        link_row.pack(anchor="w", pady=(16, 0))
-        tk.Label(link_row, text="Get API keys:", bg=BG, fg=MUTED, font=FONT_LABEL).pack(side="left")
+        link_row.pack(anchor="w", pady=(10, 0))
+        tk.Label(link_row, text="Get API keys:", bg=BG, fg=MUTED,
+                 font=FONT_LABEL).pack(side="left")
         tk.Button(link_row, text="TMDB →", bg=SURFACE2, fg=ACCENT, relief="flat",
-                  font=FONT_LABEL, cursor="hand2", command=_open_tmdb,
-                  padx=10, pady=3).pack(side="left", padx=(8, 4))
-        tk.Button(link_row, text="Real-Debrid →", bg=SURFACE2, fg=ACCENT, relief="flat",
-                  font=FONT_LABEL, cursor="hand2", command=_open_rd,
-                  padx=10, pady=3).pack(side="left", padx=4)
+                  font=FONT_LABEL, cursor="hand2", padx=10, pady=3,
+                  command=lambda: webbrowser.open(
+                      "https://www.themoviedb.org/settings/api")
+                  ).pack(side="left", padx=(8, 4))
+        tk.Button(link_row, text="Real-Debrid →", bg=SURFACE2, fg=ACCENT,
+                  relief="flat", font=FONT_LABEL, cursor="hand2", padx=10, pady=3,
+                  command=lambda: webbrowser.open(
+                      "https://real-debrid.com/apitoken")
+                  ).pack(side="left", padx=4)
         return p
 
-    # ─── Page 1: API Keys ────────────────────────────────────────────────────
+    def _browse_root(self):
+        d = filedialog.askdirectory(
+            title="Select the Media Downloader project folder",
+            initialdir=self.root_var.get() or str(Path.home()),
+        )
+        if d:
+            self.root_var.set(d)
+
+    # ── Page 1: API Keys ──────────────────────────────────────────────────────
 
     def _page_api_keys(self):
         p = self._make_page()
         self._lbl(p, "API Keys", big=True)
         self._lbl(p, "Enter your API credentials below.", muted=True)
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=10)
-        self._field(p, "TMDB API Key *",         self.vals["TMDB_API_KEY"],        password=True)
-        self._field(p, "Real-Debrid API Key *",   self.vals["REAL_DEBRID_API_KEY"], password=True)
+        self._field(p, "TMDB API Key *",       self.vals["TMDB_API_KEY"],        password=True)
+        self._field(p, "Real-Debrid Key *",    self.vals["REAL_DEBRID_API_KEY"], password=True)
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=10)
-        self._lbl(p, "Webhook Security (optional)", muted=False)
-        self._field(p, "Secret Key",              self.vals["SECRET_KEY"])
+        self._lbl(p, "Webhook Security (optional)")
+        self._field(p, "Secret Key",            self.vals["SECRET_KEY"])
         tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL, justify="left",
-                 text="Set a strong random string to secure the Siri shortcut webhook. "
-                      "Leave as 'change-me' to disable authentication."
+                 text="Set a strong random string to secure the Siri shortcut endpoint. "
+                      "Leave as 'change-me' to disable auth."
                  ).pack(anchor="w", pady=(4, 0))
         return p
 
-    # ─── Page 2: Directories ─────────────────────────────────────────────────
+    # ── Page 2: Directories ───────────────────────────────────────────────────
 
     def _page_directories(self):
         p = self._make_page()
         self._lbl(p, "Media Directories", big=True)
 
-        # Scrollable canvas for the many fields
         canvas = tk.Canvas(p, bg=BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(p, orient="vertical", command=canvas.yview)
+        sb = ttk.Scrollbar(p, orient="vertical", command=canvas.yview)
         inner = tk.Frame(canvas, bg=BG)
-
-        def _on_configure(e):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        inner.bind("<Configure>", _on_configure)
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=inner, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-
+        canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        sb.pack(side="right", fill="y")
 
         def _section(label):
             tk.Label(inner, text=label, bg=BG, fg=TEXT, font=FONT_SUB,
                      anchor="w").pack(anchor="w", pady=(12, 2))
             tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(0, 6))
 
-        _section("Primary Drive  (fast NVMe — new downloads land here)")
+        _section("Primary Drive  (NVMe — new downloads land here)")
         self._field(inner, "Movies",    self.vals["MOVIES_DIR"],    browse_dir=True)
         self._field(inner, "TV Shows",  self.vals["TV_DIR"],        browse_dir=True)
         self._field(inner, "Anime",     self.vals["ANIME_DIR"],     browse_dir=True)
@@ -512,16 +546,14 @@ class InstallerApp(tk.Tk):
 
         _section("Archive Drive  (SATA — watched content moved here)")
         self._field(inner, "Movies Archive",   self.vals["MOVIES_DIR_ARCHIVE"],  browse_dir=True)
-        self._field(inner, "TV Shows Archive", self.vals["TV_DIR_ARCHIVE"],      browse_dir=True)
+        self._field(inner, "TV Archive",       self.vals["TV_DIR_ARCHIVE"],      browse_dir=True)
         self._field(inner, "Anime Archive",    self.vals["ANIME_DIR_ARCHIVE"],   browse_dir=True)
 
-        # Mouse-wheel scrolling
-        def _on_wheel(e):
-            canvas.yview_scroll(-1 * (e.delta // 120), "units")
-        canvas.bind_all("<MouseWheel>", _on_wheel)
+        canvas.bind_all("<MouseWheel>",
+                        lambda e: canvas.yview_scroll(-1*(e.delta//120), "units"))
         return p
 
-    # ─── Page 3: Playback ────────────────────────────────────────────────────
+    # ── Page 3: Playback ──────────────────────────────────────────────────────
 
     def _page_playback(self):
         p = self._make_page()
@@ -530,21 +562,18 @@ class InstallerApp(tk.Tk):
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=10)
 
         self._field(p, "MPC-BE Executable", self.vals["MPC_BE_EXE"], browse_file=True)
-        tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL, justify="left",
-                 text="Full path to mpc-be64.exe. The server will launch MPC-BE automatically "
-                      "when you press Play if it's not already running."
+        tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL,
+                 text="Full path to mpc-be64.exe."
                  ).pack(anchor="w", pady=(0, 10))
 
         self._field(p, "MPC-BE Web URL",    self.vals["MPC_BE_URL"])
         tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL,
-                 text="Default: http://127.0.0.1:13579  — enable the web interface in "
-                      "MPC-BE → Options → Player → Web Interface."
+                 text="Enable in MPC-BE → Options → Player → Web Interface (port 13579)."
                  ).pack(anchor="w", pady=(0, 10))
 
         self._field(p, "Watch Threshold",   self.vals["WATCH_THRESHOLD"])
         tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL,
-                 text="Fraction of a file that must be watched before it is moved to the "
-                      "archive drive (default: 0.85 = 85%)."
+                 text="Fraction watched before archiving (default 0.85 = 85%)."
                  ).pack(anchor="w", pady=(0, 10))
 
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=10)
@@ -552,7 +581,7 @@ class InstallerApp(tk.Tk):
         self._field(p, "Max Concurrent DL", self.vals["MAX_CONCURRENT_DOWNLOADS"])
         return p
 
-    # ─── Page 4: Install ─────────────────────────────────────────────────────
+    # ── Page 4: Install ───────────────────────────────────────────────────────
 
     def _page_install(self):
         p = self._make_page()
@@ -561,40 +590,41 @@ class InstallerApp(tk.Tk):
         self._install_task_var = tk.BooleanVar(value=IS_WINDOWS)
         cb_row = tk.Frame(p, bg=BG)
         cb_row.pack(anchor="w", pady=(0, 12))
-        cb = tk.Checkbutton(cb_row, variable=self._install_task_var,
-                       text="Register Windows Task Scheduler task (auto-start at login)",
-                       bg=BG, fg=TEXT, selectcolor=SURFACE2, activebackground=BG,
-                       activeforeground=TEXT, font=FONT_BODY)
+        cb = tk.Checkbutton(
+            cb_row, variable=self._install_task_var,
+            text="Register Windows Task Scheduler task (auto-start at login)",
+            bg=BG, fg=TEXT, selectcolor=SURFACE2,
+            activebackground=BG, activeforeground=TEXT, font=FONT_BODY)
         cb.pack(anchor="w")
         if not IS_WINDOWS:
-            # On macOS/Linux the Task Scheduler option makes no sense
             cb.configure(state="disabled")
-            tk.Label(cb_row, text="  (Windows only — skip on macOS)",
+            tk.Label(cb_row, text="  (Windows only)",
                      bg=BG, fg=MUTED, font=FONT_LABEL).pack(anchor="w")
 
-        tk.Label(p, text="Installation log:", bg=BG, fg=MUTED, font=FONT_LABEL).pack(anchor="w")
-        self._log_text = tk.Text(p, height=14, state="disabled",
-                                  bg=SURFACE2, fg=MUTED, font=FONT_MONO,
-                                  relief="flat", bd=4,
-                                  highlightthickness=1, highlightbackground=BORDER)
+        tk.Label(p, text="Installation log:", bg=BG, fg=MUTED,
+                 font=FONT_LABEL).pack(anchor="w")
+        self._log_text = tk.Text(
+            p, height=14, state="disabled",
+            bg=SURFACE2, fg=MUTED, font=FONT_MONO,
+            relief="flat", bd=4,
+            highlightthickness=1, highlightbackground=BORDER)
         self._log_text.pack(fill="both", expand=True, pady=6)
 
         self._install_status = tk.Label(p, text="", bg=BG, fg=MUTED, font=FONT_LABEL)
         self._install_status.pack(anchor="w")
         return p
 
-    # ─── Page 5: Done ────────────────────────────────────────────────────────
+    # ── Page 5: Done ──────────────────────────────────────────────────────────
 
     def _page_done(self):
         p = self._make_page()
-        self._done_icon  = tk.Label(p, text="✓", bg=BG, fg=SUCCESS,
-                                    font=("Segoe UI", 56, "bold"))
+        self._done_icon = tk.Label(p, text="✓", bg=BG, fg=SUCCESS,
+                                   font=("Segoe UI", 56, "bold"))
         self._done_icon.pack(pady=(20, 4))
         tk.Label(p, text="Installation Complete!", bg=BG, fg=TEXT,
                  font=FONT_TITLE).pack()
         self._done_msg = tk.Label(p, bg=BG, fg=MUTED, font=FONT_BODY,
-                                  justify="center", wraplength=480,
-                                  text="")
+                                  justify="center", wraplength=480, text="")
         self._done_msg.pack(pady=16)
 
         btn_row = tk.Frame(p, bg=BG)
@@ -613,59 +643,25 @@ class InstallerApp(tk.Tk):
                       ).pack(side="left", padx=8)
         else:
             tk.Label(btn_row,
-                     text="Copy the project folder to your Windows PC and run run_server.bat there.",
+                     text="Copy the project folder to your Windows PC "
+                          "and run run_server.bat there.",
                      bg=BG, fg=MUTED, font=FONT_LABEL).pack()
         return p
 
     def _start_server_now(self):
-        if not IS_WINDOWS:
-            messagebox.showinfo(
-                "Windows only",
-                "The server must be started on your Windows HTPC.\n\n"
-                "Run run_server.bat on the PC after copying the project there."
-            )
-            return
-        run_bat = self._locate_run_bat()
-        if run_bat:
+        root = Path(self.root_var.get())
+        run_bat = root / "run_server.bat"
+        if run_bat.exists():
             subprocess.Popen(["cmd", "/c", str(run_bat)], creationflags=_DETACHED)
-        # _locate_run_bat() already showed an error dialog if nothing was found
+        else:
+            messagebox.showwarning(
+                "Not found",
+                f"run_server.bat not found in:\n{root}"
+            )
 
-    def _locate_run_bat(self) -> "Path | None":
-        """Return the path to run_server.bat, prompting the user to browse if needed."""
-        candidate = ROOT / "run_server.bat"
-        if candidate.exists():
-            return candidate
-
-        # ROOT detection failed — ask the user to point us at the project folder.
-        answer = messagebox.askokcancel(
-            "Project folder not found",
-            f"Could not find run_server.bat.\n\n"
-            f"Searched in: {ROOT}\n\n"
-            "Click OK to browse for the project folder, or Cancel to skip.",
-        )
-        if not answer:
-            return None
-
-        folder = filedialog.askdirectory(title="Select the Media Downloader project folder")
-        if not folder:
-            return None
-
-        bat = Path(folder) / "run_server.bat"
-        if bat.exists():
-            return bat
-
-        messagebox.showerror(
-            "Still not found",
-            f"run_server.bat was not found in:\n{folder}\n\n"
-            "Make sure you selected the correct project folder."
-        )
-        return None
-
-    # ─── Install logic ───────────────────────────────────────────────────────
+    # ── Install logic ─────────────────────────────────────────────────────────
 
     def _run_install(self):
-        """Called when the user clicks 'Install' on the install page."""
-        # Validate required fields
         if not self.vals["TMDB_API_KEY"].get().strip():
             messagebox.showerror("Missing field", "TMDB API Key is required.")
             self._show_page(1); return
@@ -673,85 +669,78 @@ class InstallerApp(tk.Tk):
             messagebox.showerror("Missing field", "Real-Debrid API Key is required.")
             self._show_page(1); return
 
-        # Disable navigation during install
+        root = Path(self.root_var.get())
+
         self._btn_next.configure(state="disabled")
         self._btn_back.configure(state="disabled")
-        self._show_page(4)  # Install page
+        self._show_page(4)
 
         def _step1_write_env():
+            _append_log(self._log_text, f"Project folder: {root}\n\n")
             _append_log(self._log_text, "Writing .env configuration…\n")
             vals = {k: v.get() for k, v in self.vals.items()}
             try:
-                _write_env(vals)
-                _append_log(self._log_text, f"  Saved: {ENV_FILE}\n\n")
+                _write_env(root, vals)
+                _append_log(self._log_text, f"  Saved: {root / '.env'}\n\n")
             except Exception as exc:
-                _append_log(self._log_text, f"  ERROR writing .env: {exc}\n")
-                self._finish_install(False)
-                return
-            # Step 2: find Python, then pip install
+                _append_log(self._log_text, f"  ERROR: {exc}\n")
+                self._finish_install(False); return
+
             _append_log(self._log_text, "Locating Python interpreter…\n")
             try:
-                _found_python = _find_python()
-                _append_log(self._log_text, f"  Using: {_found_python}\n\n")
+                python = _find_python(root)
+                _append_log(self._log_text, f"  Using: {python}\n\n")
             except RuntimeError as exc:
                 _append_log(self._log_text, f"  ERROR: {exc}\n")
-                self._finish_install(False)
-                return
-            _append_log(self._log_text, "Installing Python dependencies…\n")
-            _pip_install(self._log_text, _step2_after_pip, python=_found_python)
+                self._finish_install(False); return
 
-        def _step2_after_pip(pip_ok: bool):
-            if not pip_ok:
-                _append_log(self._log_text, "\nDependency install failed — check the log above.\n")
-                self._finish_install(False)
-                return
-            _append_log(self._log_text, "\nDependencies installed successfully.\n\n")
+            _append_log(self._log_text, "Installing Python dependencies…\n")
+            _pip_install(root, python, self._log_text, _step2_after_pip)
+
+        def _step2_after_pip(ok: bool):
+            if not ok:
+                _append_log(self._log_text, "\nDependency install failed.\n")
+                self._finish_install(False); return
+            _append_log(self._log_text, "\nDependencies installed.\n\n")
             if self._install_task_var.get():
                 _append_log(self._log_text, "Creating Task Scheduler task…\n")
                 _create_task_scheduler(
-                    self.vals["PORT"].get(), self._log_text, _step3_after_task)
+                    root, self.vals["PORT"].get(),
+                    self._log_text, _step3_after_task)
             else:
                 _step3_after_task(True)
 
-        def _step3_after_task(task_ok: bool):
+        def _step3_after_task(ok: bool):
             if self._install_task_var.get():
-                if task_ok:
-                    _append_log(self._log_text, "Task Scheduler task created: MediaDownloader\n\n")
-                else:
-                    _append_log(self._log_text,
-                        "Task Scheduler failed — you can run run_server.bat manually.\n\n")
+                msg = "Task registered: MediaDownloader\n\n" if ok \
+                      else "Task Scheduler failed — start manually with run_server.bat.\n\n"
+                _append_log(self._log_text, msg)
             self._finish_install(True)
 
-        # Run in thread so UI stays responsive
         threading.Thread(target=_step1_write_env, daemon=True).start()
 
     def _finish_install(self, ok: bool):
-        self._install_ok = ok
         port = self.vals["PORT"].get()
         if ok:
             if IS_WINDOWS:
-                auto_note = (
-                    "The server will start automatically at login "
-                    f"{'(Task Scheduler task registered).' if self._install_task_var.get() else '— run run_server.bat to start it manually.'}"
-                )
-                url_note = f"Open http://localhost:{port} in your browser to access the UI."
+                auto = ("auto-starts at login (Task Scheduler task registered)."
+                        if self._install_task_var.get()
+                        else "run run_server.bat to start the server.")
             else:
-                auto_note = (
-                    "Configuration written. Copy this project folder to your Windows HTPC "
-                    "and run run_server.bat (or the compiled EXE) there to start the server."
-                )
-                url_note = f"On the PC, open http://localhost:{port} in a browser."
+                auto = ("copy the project folder to your Windows PC "
+                        "and run run_server.bat there.")
             self._done_msg.configure(
-                text=f"Media Downloader is configured and ready.\n\n{auto_note}\n\n{url_note}",
-                fg=MUTED,
-            )
+                text=f"Done!\n\nNext: {auto}\n\n"
+                     f"Then open http://localhost:{port} in a browser.",
+                fg=MUTED)
             self._done_icon.configure(text="✓", fg=SUCCESS)
         else:
             self._done_msg.configure(
-                text="Installation encountered errors. Check the log on the previous screen.\n\n"
-                     "You can fix the issues and run the installer again, or configure .env manually.",
-                fg=ERROR,
-            )
+                text="Installation encountered errors.\n"
+                     "Check the log on the previous screen.\n\n"
+                     "Fix the issue and run the installer again, "
+                     "or edit .env manually.",
+                fg=ERROR)
             self._done_icon.configure(text="✗", fg=ERROR)
 
         self._btn_next.configure(state="normal")
@@ -760,5 +749,4 @@ class InstallerApp(tk.Tk):
 
 
 if __name__ == "__main__":
-    app = InstallerApp()
-    app.mainloop()
+    InstallerApp().mainloop()
