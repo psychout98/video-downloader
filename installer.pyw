@@ -22,12 +22,30 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
+IS_WINDOWS = sys.platform == "win32"
+# Safe creationflags — Windows-only constants evaluated lazily so the module
+# loads without error on macOS/Linux.
+_DETACHED = subprocess.CREATE_NEW_CONSOLE if IS_WINDOWS else 0
+
 # ── Locate project root ───────────────────────────────────────────────────────
-if getattr(sys, "frozen", False):
-    # Compiled with PyInstaller — EXE lives in the project root
-    ROOT = Path(sys.executable).parent
-else:
-    ROOT = Path(__file__).parent
+# Walk up from the EXE / script until we find run_server.bat, which anchors
+# the project root.  This handles EXEs placed in dist\ or any subdirectory.
+def _find_root() -> Path:
+    if getattr(sys, "frozen", False):
+        start = Path(sys.executable).parent   # directory containing the EXE
+    else:
+        start = Path(__file__).resolve().parent
+
+    candidate = start
+    for _ in range(4):          # search up to 4 levels up
+        if (candidate / "run_server.bat").exists():
+            return candidate
+        candidate = candidate.parent
+
+    # Fallback: just use whatever directory the EXE / script is in
+    return start
+
+ROOT = _find_root()
 
 ENV_FILE      = ROOT / ".env"
 REQUIREMENTS  = ROOT / "requirements.txt"
@@ -101,7 +119,7 @@ def _pip_install(log_widget, done_callback):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
             )
             for line in proc.stdout:
                 _append_log(log_widget, line)
@@ -148,7 +166,7 @@ def _create_task_scheduler(port: str, log_widget, done_callback):
             result = subprocess.run(
                 cmd,
                 capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
             )
             out = result.stdout + result.stderr
             _append_log(log_widget, out + "\n")
@@ -512,13 +530,19 @@ class InstallerApp(tk.Tk):
         p = self._make_page()
         self._lbl(p, "Install", big=True)
 
-        self._install_task_var = tk.BooleanVar(value=True)
+        self._install_task_var = tk.BooleanVar(value=IS_WINDOWS)
         cb_row = tk.Frame(p, bg=BG)
         cb_row.pack(anchor="w", pady=(0, 12))
-        tk.Checkbutton(cb_row, variable=self._install_task_var,
+        cb = tk.Checkbutton(cb_row, variable=self._install_task_var,
                        text="Register Windows Task Scheduler task (auto-start at login)",
                        bg=BG, fg=TEXT, selectcolor=SURFACE2, activebackground=BG,
-                       activeforeground=TEXT, font=FONT_BODY).pack(anchor="w")
+                       activeforeground=TEXT, font=FONT_BODY)
+        cb.pack(anchor="w")
+        if not IS_WINDOWS:
+            # On macOS/Linux the Task Scheduler option makes no sense
+            cb.configure(state="disabled")
+            tk.Label(cb_row, text="  (Windows only — skip on macOS)",
+                     bg=BG, fg=MUTED, font=FONT_LABEL).pack(anchor="w")
 
         tk.Label(p, text="Installation log:", bg=BG, fg=MUTED, font=FONT_LABEL).pack(anchor="w")
         self._log_text = tk.Text(p, height=14, state="disabled",
@@ -547,27 +571,44 @@ class InstallerApp(tk.Tk):
 
         btn_row = tk.Frame(p, bg=BG)
         btn_row.pack(pady=8)
-        tk.Button(btn_row, text="▶ Start Server Now", bg=SUCCESS, fg="#fff",
-                  relief="flat", font=("Segoe UI", 10, "bold"),
-                  activebackground="#3a9060", cursor="hand2",
-                  padx=16, pady=6,
-                  command=self._start_server_now).pack(side="left", padx=8)
-        tk.Button(btn_row, text="Open Browser", bg=SURFACE2, fg=TEXT,
-                  relief="flat", font=FONT_BODY, cursor="hand2",
-                  padx=12, pady=6,
-                  command=lambda: webbrowser.open(
-                      f"http://localhost:{self.vals['PORT'].get()}")
-                  ).pack(side="left", padx=8)
+        if IS_WINDOWS:
+            tk.Button(btn_row, text="▶ Start Server Now", bg=SUCCESS, fg="#fff",
+                      relief="flat", font=("Segoe UI", 10, "bold"),
+                      activebackground="#3a9060", cursor="hand2",
+                      padx=16, pady=6,
+                      command=self._start_server_now).pack(side="left", padx=8)
+            tk.Button(btn_row, text="Open Browser", bg=SURFACE2, fg=TEXT,
+                      relief="flat", font=FONT_BODY, cursor="hand2",
+                      padx=12, pady=6,
+                      command=lambda: webbrowser.open(
+                          f"http://localhost:{self.vals['PORT'].get()}")
+                      ).pack(side="left", padx=8)
+        else:
+            tk.Label(btn_row,
+                     text="Copy the project folder to your Windows PC and run run_server.bat there.",
+                     bg=BG, fg=MUTED, font=FONT_LABEL).pack()
         return p
 
     def _start_server_now(self):
+        if not IS_WINDOWS:
+            messagebox.showinfo(
+                "Windows only",
+                "The server must be started on your Windows HTPC.\n\n"
+                "Run run_server.bat on the PC after copying the project there."
+            )
+            return
         run_bat = ROOT / "run_server.bat"
         if run_bat.exists():
-            subprocess.Popen(["cmd", "/c", str(run_bat)],
-                             creationflags=subprocess.CREATE_NEW_CONSOLE)
+            subprocess.Popen(
+                ["cmd", "/c", str(run_bat)],
+                creationflags=_DETACHED,
+            )
         else:
-            messagebox.showwarning("Not found",
-                f"run_server.bat not found at:\n{run_bat}\n\nStart the server manually.")
+            messagebox.showwarning(
+                "Not found",
+                f"run_server.bat not found at:\n{run_bat}\n\n"
+                "Make sure the installer EXE is in the same folder as the project files."
+            )
 
     # ─── Install logic ───────────────────────────────────────────────────────
 
@@ -629,11 +670,20 @@ class InstallerApp(tk.Tk):
         self._install_ok = ok
         port = self.vals["PORT"].get()
         if ok:
+            if IS_WINDOWS:
+                auto_note = (
+                    "The server will start automatically at login "
+                    f"{'(Task Scheduler task registered).' if self._install_task_var.get() else '— run run_server.bat to start it manually.'}"
+                )
+                url_note = f"Open http://localhost:{port} in your browser to access the UI."
+            else:
+                auto_note = (
+                    "Configuration written. Copy this project folder to your Windows HTPC "
+                    "and run run_server.bat (or the compiled EXE) there to start the server."
+                )
+                url_note = f"On the PC, open http://localhost:{port} in a browser."
             self._done_msg.configure(
-                text=f"Media Downloader is configured and ready.\n\n"
-                     f"The server will start automatically at login "
-                     f"{'(Task Scheduler task registered)' if self._install_task_var.get() else '(no auto-start — run run_server.bat manually)'}.\n\n"
-                     f"Open http://localhost:{port} in your browser to access the UI.",
+                text=f"Media Downloader is configured and ready.\n\n{auto_note}\n\n{url_note}",
                 fg=MUTED,
             )
             self._done_icon.configure(text="✓", fg=SUCCESS)

@@ -70,12 +70,15 @@ wine "$WINE_PYTHON" -m PyInstaller \
     --onefile \
     --windowed \
     --name "MediaDownloader-Setup" \
+    --distpath . \
+    --workpath "build/_pyinstaller" \
+    --specpath build \
     installer.pyw
 
 echo ""
-if [ -f "dist/MediaDownloader-Setup.exe" ]; then
-    SIZE=$(du -sh dist/MediaDownloader-Setup.exe | cut -f1)
-    echo "✅  Build complete!  dist/MediaDownloader-Setup.exe  (${SIZE})"
+if [ -f "MediaDownloader-Setup.exe" ]; then
+    SIZE=$(du -sh MediaDownloader-Setup.exe | cut -f1)
+    echo "✅  Build complete!  MediaDownloader-Setup.exe  (${SIZE})"
     echo ""
     echo "   Copy this EXE to your HTPC and run it to install Media Downloader."
 else

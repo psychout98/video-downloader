@@ -22,6 +22,9 @@ pyinstaller ^
     --onefile ^
     --windowed ^
     --name "MediaDownloader-Setup" ^
+    --distpath . ^
+    --workpath build\_pyinstaller ^
+    --specpath build ^
     installer.pyw
 
 if errorlevel 1 (
@@ -34,6 +37,6 @@ if errorlevel 1 (
 echo.
 echo ================================================================
 echo  Build complete!
-echo  Installer:  dist\MediaDownloader-Setup.exe
+echo  Installer:  MediaDownloader-Setup.exe  (in this folder)
 echo ================================================================
 pause
