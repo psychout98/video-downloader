@@ -103,13 +103,41 @@ def _write_env(values: dict):
 
 
 def _find_python() -> str:
-    """Return the Python executable being used to run this installer."""
-    return sys.executable
+    """Return a usable Python executable for running pip / uvicorn.
+
+    When frozen as a PyInstaller EXE, sys.executable IS the installer EXE,
+    so we must locate the real Python separately — otherwise pip launch would
+    open a second copy of the wizard.
+    """
+    if not getattr(sys, "frozen", False):
+        # Running as a plain .py / .pyw — sys.executable is the real Python.
+        return sys.executable
+
+    # ── Frozen EXE path ──────────────────────────────────────────────────
+    import shutil
+
+    # 1. Prefer the project's own venv so dependencies land in the right place.
+    venv_py = ROOT / ".venv" / "Scripts" / "python.exe"
+    if venv_py.exists():
+        return str(venv_py)
+
+    # 2. Fall back to any Python on the system PATH.
+    for name in ("python", "python3", "py"):
+        found = shutil.which(name)
+        if found:
+            return found
+
+    raise RuntimeError(
+        "Python not found.\n\n"
+        "Install Python 3.10+ from python.org, make sure 'Add Python to PATH' "
+        "is checked, then re-run this installer."
+    )
 
 
-def _pip_install(log_widget, done_callback):
+def _pip_install(log_widget, done_callback, python: str = None):
     """Run pip install -r requirements.txt in a background thread."""
-    python = _find_python()
+    if python is None:
+        python = _find_python()
     cmd = [python, "-m", "pip", "install", "-r", str(REQUIREMENTS), "--upgrade"]
 
     def _run():
@@ -597,18 +625,41 @@ class InstallerApp(tk.Tk):
                 "Run run_server.bat on the PC after copying the project there."
             )
             return
-        run_bat = ROOT / "run_server.bat"
-        if run_bat.exists():
-            subprocess.Popen(
-                ["cmd", "/c", str(run_bat)],
-                creationflags=_DETACHED,
-            )
-        else:
-            messagebox.showwarning(
-                "Not found",
-                f"run_server.bat not found at:\n{run_bat}\n\n"
-                "Make sure the installer EXE is in the same folder as the project files."
-            )
+        run_bat = self._locate_run_bat()
+        if run_bat:
+            subprocess.Popen(["cmd", "/c", str(run_bat)], creationflags=_DETACHED)
+        # _locate_run_bat() already showed an error dialog if nothing was found
+
+    def _locate_run_bat(self) -> "Path | None":
+        """Return the path to run_server.bat, prompting the user to browse if needed."""
+        candidate = ROOT / "run_server.bat"
+        if candidate.exists():
+            return candidate
+
+        # ROOT detection failed — ask the user to point us at the project folder.
+        answer = messagebox.askokcancel(
+            "Project folder not found",
+            f"Could not find run_server.bat.\n\n"
+            f"Searched in: {ROOT}\n\n"
+            "Click OK to browse for the project folder, or Cancel to skip.",
+        )
+        if not answer:
+            return None
+
+        folder = filedialog.askdirectory(title="Select the Media Downloader project folder")
+        if not folder:
+            return None
+
+        bat = Path(folder) / "run_server.bat"
+        if bat.exists():
+            return bat
+
+        messagebox.showerror(
+            "Still not found",
+            f"run_server.bat was not found in:\n{folder}\n\n"
+            "Make sure you selected the correct project folder."
+        )
+        return None
 
     # ─── Install logic ───────────────────────────────────────────────────────
 
@@ -637,9 +688,17 @@ class InstallerApp(tk.Tk):
                 _append_log(self._log_text, f"  ERROR writing .env: {exc}\n")
                 self._finish_install(False)
                 return
-            # Step 2: pip install
+            # Step 2: find Python, then pip install
+            _append_log(self._log_text, "Locating Python interpreter…\n")
+            try:
+                _found_python = _find_python()
+                _append_log(self._log_text, f"  Using: {_found_python}\n\n")
+            except RuntimeError as exc:
+                _append_log(self._log_text, f"  ERROR: {exc}\n")
+                self._finish_install(False)
+                return
             _append_log(self._log_text, "Installing Python dependencies…\n")
-            _pip_install(self._log_text, _step2_after_pip)
+            _pip_install(self._log_text, _step2_after_pip, python=_found_python)
 
         def _step2_after_pip(pip_ok: bool):
             if not pip_ok:
