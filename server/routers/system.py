@@ -70,12 +70,20 @@ async def api_shutdown():
 
 @router.post("/restart")
 async def api_restart():
-    """Restart the server process by re-exec'ing the current Python command."""
+    """Restart the server by spawning a fresh child process then exiting."""
     logger.info("Restart requested via API")
 
     async def _do_restart():
         await asyncio.sleep(0.4)   # let the response be sent first
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        import subprocess
+        kwargs: dict = {"cwd": os.getcwd(), "env": os.environ.copy()}
+        if sys.platform == "win32":
+            # Detach from the current console so the child outlives the parent
+            DETACHED_PROCESS      = 0x00000008
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen([sys.executable] + sys.argv, **kwargs)
+        os._exit(0)   # terminate this process; child carries on independently
 
     asyncio.create_task(_do_restart())
     return {"ok": True, "message": "Server restarting…"}
