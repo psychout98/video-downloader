@@ -444,7 +444,9 @@ class InstallerApp(tk.Tk):
         if self._current == len(self._pages) - 1:
             self.destroy()
             return
+        # Page 4 is the install/log page — both "Install ✓" and "Retry ↺" run install
         if self._current == len(self._pages) - 2:
+            self._reset_log()
             self._run_install()
             return
         self._show_page(self._current + 1)
@@ -756,6 +758,17 @@ class InstallerApp(tk.Tk):
 
     # ── Install logic ─────────────────────────────────────────────────────────
 
+    def _reset_log(self):
+        """Clear the log and status label before a fresh install attempt."""
+        self._log_text.configure(state="normal")
+        self._log_text.delete("1.0", tk.END)
+        self._log_text.configure(state="disabled")
+        self._install_status.configure(text="", fg=MUTED)
+        self._btn_next.configure(
+            text="Install ✓", state="disabled",
+            bg=SUCCESS, fg="#fff", activebackground="#3a9060")
+        self._btn_back.configure(state="disabled")
+
     def _run_install(self):
         if not self.vals["TMDB_API_KEY"].get().strip():
             messagebox.showerror("Missing field", "TMDB API Key is required.")
@@ -848,7 +861,7 @@ class InstallerApp(tk.Tk):
             if IS_WINDOWS:
                 auto = ("auto-starts at login (Task Scheduler task registered)."
                         if self._install_task_var.get()
-                        else f"run run_server.bat to start the server.")
+                        else "run run_server.bat to start the server.")
             else:
                 auto = "run run_server.bat on Windows to start the server."
             self._done_msg.configure(
@@ -857,17 +870,21 @@ class InstallerApp(tk.Tk):
                      f"Then open http://localhost:{port} in a browser.",
                 fg=MUTED)
             self._done_icon.configure(text="✓", fg=SUCCESS)
+            # Success — advance to Done page, no going back needed
+            self._btn_next.configure(state="normal")
+            self._btn_back.configure(state="disabled")
+            self._show_page(5)
         else:
-            self._done_msg.configure(
-                text="Installation encountered errors.\n"
-                     "Check the log on the previous screen.\n\n"
-                     "Fix the issue and re-run the installer.",
+            # Failure — stay on the log page so the user can read the output
+            _append_log(self._log_text, "\n── Installation failed ──────────────────\n")
+            self._install_status.configure(
+                text="✗  Installation failed — review the log above.",
                 fg=ERROR)
-            self._done_icon.configure(text="✗", fg=ERROR)
-
-        self._btn_next.configure(state="normal")
-        self._btn_back.configure(state="disabled")
-        self._show_page(5)
+            # Re-enable Back so they can correct settings and retry
+            self._btn_back.configure(state="normal")
+            self._btn_next.configure(
+                text="Retry ↺", state="normal",
+                bg=ACCENT, fg="#111", activebackground="#c27b00")
 
 
 if __name__ == "__main__":
