@@ -1,23 +1,25 @@
 """
-Media Downloader — Windows Installer / Setup Wizard
-====================================================
-Run with:  python installer.pyw
+Media Downloader — Windows Installer
+=====================================
+Run with:  python installer.pyw          (development)
 Compile to .exe with:  build_installer.bat
 
-The EXE can be run from anywhere — the user selects the project folder
-on the first page of the wizard.
+When compiled with PyInstaller (--add-data flags), the EXE bundles the entire
+project inside it.  The user chooses an install location; the installer extracts
+the files there, writes .env, runs pip, and registers a Task Scheduler task.
 
 Wizard pages
 ------------
-1. Welcome    (includes project folder picker)
-2. API Keys   (TMDB, Real-Debrid, optional webhook secret)
+1. Welcome     (choose install location)
+2. API Keys    (TMDB, Real-Debrid, optional webhook secret)
 3. Directories (primary NVMe + archive SATA paths)
-4. Playback   (MPC-BE exe path, watch threshold)
-5. Install    (writes .env, pip install, creates Task Scheduler task)
+4. Playback    (MPC-BE exe path, watch threshold)
+5. Install     (extract files, write .env, pip install, Task Scheduler)
 6. Done
 """
 import os
 import sys
+import shutil
 import subprocess
 import threading
 import webbrowser
@@ -28,23 +30,56 @@ from tkinter import ttk, filedialog, messagebox
 IS_WINDOWS = sys.platform == "win32"
 _DETACHED  = subprocess.CREATE_NEW_CONSOLE if IS_WINDOWS else 0
 
+# Default install location
+_DEFAULT_INSTALL = Path.home() / "MediaDownloader"
 
-# ── Guess a sensible default project folder ───────────────────────────────────
-def _guess_root() -> str:
-    """Best-effort guess at the project folder — user can always correct it."""
+
+# ── Locate bundled source files ───────────────────────────────────────────────
+def _bundled_root() -> Path:
+    """
+    When frozen (PyInstaller), sys._MEIPASS is the temp folder where --add-data
+    files are extracted.  When running as a plain .py/.pyw script, the bundled
+    files live beside installer.pyw in the project repo.
+    """
     if getattr(sys, "frozen", False):
-        start = Path(sys.executable).parent
-    else:
-        start = Path(__file__).resolve().parent
+        return Path(sys._MEIPASS)          # type: ignore[attr-defined]
+    return Path(__file__).resolve().parent
 
-    # Walk up looking for run_server.bat
-    candidate = start
-    for _ in range(4):
-        if (candidate / "run_server.bat").exists():
-            return str(candidate)
-        candidate = candidate.parent
 
-    return str(start)   # Fall back to EXE location — user will need to correct
+# ── Files/dirs to copy from bundle → install location ────────────────────────
+# Each entry: (relative path inside bundle, relative path inside install dir)
+_BUNDLE_ITEMS = [
+    ("server",           "server"),
+    ("run_server.bat",   "run_server.bat"),
+    ("stop_server.bat",  "stop_server.bat"),
+    ("requirements.txt", "requirements.txt"),
+]
+
+
+def _extract_files(dest: Path, log_fn):
+    """Copy bundled project files into the install directory."""
+    src_root = _bundled_root()
+    dest.mkdir(parents=True, exist_ok=True)
+
+    for rel_src, rel_dst in _BUNDLE_ITEMS:
+        src = src_root / rel_src
+        dst = dest / rel_dst
+        if not src.exists():
+            log_fn(f"  WARNING: bundled file not found: {rel_src}\n")
+            continue
+        try:
+            if src.is_dir():
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(src, dst)
+                log_fn(f"  Copied folder: {rel_dst}\\\n")
+            else:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                log_fn(f"  Copied: {rel_dst}\n")
+        except Exception as exc:
+            log_fn(f"  ERROR copying {rel_src}: {exc}\n")
+            raise
 
 
 # ── Defaults (pre-filled in the wizard) ──────────────────────────────────────
@@ -93,21 +128,21 @@ def _write_env(root: Path, values: dict):
         if " " in v or "#" in v:
             v = f'"{v}"'
         lines.append(f"{k}={v}")
-    env_file = root / ".env"
-    with open(env_file, "w", encoding="utf-8") as f:
+    with open(root / ".env", "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
 
 # ── Find a real Python interpreter ───────────────────────────────────────────
-def _find_python(root: Path) -> str:
-    """Return a usable Python executable (never the frozen EXE itself)."""
+def _find_python(install_root: Path) -> str:
+    """
+    Return a usable Python executable.
+    When frozen, sys.executable is the installer EXE — never use it for pip.
+    """
     if not getattr(sys, "frozen", False):
-        return sys.executable      # plain .py / .pyw — sys.executable is real Python
+        return sys.executable   # plain .py/.pyw — sys.executable is real Python
 
-    import shutil
-
-    # 1. Project venv (preferred — deps land in the right place)
-    venv_py = root / ".venv" / "Scripts" / "python.exe"
+    # 1. Project venv created by a previous run of this installer
+    venv_py = install_root / ".venv" / "Scripts" / "python.exe"
     if venv_py.exists():
         return str(venv_py)
 
@@ -159,8 +194,7 @@ def _append_log(widget, text):
 # ── Task Scheduler ────────────────────────────────────────────────────────────
 def _create_task_scheduler(root: Path, port: str, log_widget, done_callback):
     vbs_path = root / "silent_launch.vbs"
-    if not vbs_path.exists():
-        _write_vbs_launcher(root)
+    _write_vbs_launcher(root)   # always regenerate with correct paths
 
     xml_path = root / "task_def.xml"
     _write_task_xml(root, xml_path, str(vbs_path))
@@ -198,7 +232,8 @@ def _write_vbs_launcher(root: Path):
 
 
 def _write_task_xml(root: Path, xml_path: Path, vbs_path: str):
-    def _esc(s): return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+    def _esc(s):
+        return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
     xml = f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
@@ -258,16 +293,16 @@ class InstallerApp(tk.Tk):
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
-        # ── Project root — the single source of truth ─────────────────────
-        # User sets this on the Welcome page; everything else uses it.
-        self.root_var = tk.StringVar(value=_guess_root())
+        # ── Install location — the single source of truth ─────────────────
+        # Default: ~/MediaDownloader.  User can change it on the Welcome page.
+        self.install_var = tk.StringVar(value=str(_DEFAULT_INSTALL))
 
-        # Load existing .env from the guessed root (may be empty)
-        self._reload_env_defaults()
+        # Pre-fill form fields from defaults (overridden by existing .env if
+        # the user happens to point at a folder with one)
+        self.vals = {k: tk.StringVar(value=v) for k, v in DEFAULTS.items()}
 
         self._pages: list[tk.Frame] = []
         self._current = 0
-        self._install_ok = False
 
         # ── Header ────────────────────────────────────────────────────────
         header = tk.Frame(self, bg=SURFACE, height=64)
@@ -314,17 +349,6 @@ class InstallerApp(tk.Tk):
         ]
         self._show_page(0)
 
-    def _reload_env_defaults(self):
-        """(Re-)initialise self.vals from the current root's .env."""
-        root = Path(self.root_var.get())
-        existing = _load_existing_env(root)
-        if hasattr(self, "vals"):
-            for k, v in DEFAULTS.items():
-                self.vals[k].set(existing.get(k, v))
-        else:
-            self.vals = {k: tk.StringVar(value=existing.get(k, v))
-                         for k, v in DEFAULTS.items()}
-
     # ── Navigation ────────────────────────────────────────────────────────────
 
     def _show_page(self, idx):
@@ -348,8 +372,7 @@ class InstallerApp(tk.Tk):
 
     def _go_next(self):
         if self._current == 0:
-            # Validate project folder before leaving Welcome page
-            if not self._validate_root():
+            if not self._validate_install_dir():
                 return
         if self._current == len(self._pages) - 1:
             self.destroy()
@@ -363,26 +386,30 @@ class InstallerApp(tk.Tk):
         if self._current > 0:
             self._show_page(self._current - 1)
 
-    def _validate_root(self) -> bool:
-        """Check the project folder contains run_server.bat before continuing."""
-        root = Path(self.root_var.get().strip())
-        if not root.exists():
+    def _validate_install_dir(self) -> bool:
+        """Make sure the chosen install path is usable."""
+        dest = Path(self.install_var.get().strip())
+        if not dest.name:
+            messagebox.showerror("Invalid path", "Please enter a valid install folder path.")
+            return False
+
+        # Check the parent exists (or can be created) and is writable
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
             messagebox.showerror(
-                "Folder not found",
-                f"The folder does not exist:\n{root}\n\n"
-                "Please click Browse and select the Media Downloader project folder."
+                "Cannot create folder",
+                f"Could not create the install folder:\n{dest}\n\n{exc}"
             )
             return False
-        if not (root / "run_server.bat").exists():
-            messagebox.showerror(
-                "Wrong folder",
-                f"run_server.bat was not found in:\n{root}\n\n"
-                "Please select the folder that contains run_server.bat, "
-                "requirements.txt, and the server\\ sub-folder."
-            )
-            return False
-        # Reload .env values from the confirmed root
-        self._reload_env_defaults()
+
+        # If a previous install exists there, offer to upgrade
+        if (dest / "run_server.bat").exists():
+            existing_env = _load_existing_env(dest)
+            for k, v in existing_env.items():
+                if k in self.vals:
+                    self.vals[k].set(v)
+
         return True
 
     # ── Field helpers ─────────────────────────────────────────────────────────
@@ -440,20 +467,23 @@ class InstallerApp(tk.Tk):
         tk.Label(p, text="▣", bg=BG, fg=ACCENT,
                  font=("Segoe UI", 40)).pack(pady=(4, 2))
         self._lbl(p, "Welcome to Media Downloader", big=True)
+        self._lbl(p,
+                  "This wizard will install Media Downloader and configure it "
+                  "for your system.", muted=True)
 
-        # ── Project folder (the critical field) ──────────────────────────
+        # ── Install location ──────────────────────────────────────────────
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=8)
         tk.Label(p, bg=BG, fg=TEXT, font=FONT_SUB,
-                 text="Project Folder").pack(anchor="w")
+                 text="Install Location").pack(anchor="w")
         tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL, wraplength=580,
-                 text="Select the folder where you extracted Media Downloader "
-                      "(it contains run_server.bat and the server\\ sub-folder)."
+                 text="Choose where Media Downloader will be installed. "
+                      "The folder will be created if it doesn't exist."
                  ).pack(anchor="w", pady=(2, 6))
 
         folder_row = tk.Frame(p, bg=BG)
         folder_row.pack(fill="x")
         folder_entry = tk.Entry(
-            folder_row, textvariable=self.root_var,
+            folder_row, textvariable=self.install_var,
             bg=SURFACE2, fg=TEXT, insertbackground=TEXT,
             relief="flat", font=FONT_BODY, bd=4,
             highlightthickness=1, highlightbackground=BORDER,
@@ -462,13 +492,14 @@ class InstallerApp(tk.Tk):
         tk.Button(folder_row, text="Browse…", bg=ACCENT, fg="#111",
                   relief="flat", font=FONT_LABEL, cursor="hand2",
                   padx=10, pady=4,
-                  command=self._browse_root
+                  command=self._browse_install_dir
                   ).pack(side="left", padx=(6, 0))
 
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=8)
 
         tk.Label(p, bg=BG, fg=MUTED, font=FONT_BODY, justify="left", wraplength=580,
                  text="You will also need:\n"
+                      "  • Python 3.10+ installed and on your PATH\n"
                       "  • A TMDB API key  (free — themoviedb.org)\n"
                       "  • A Real-Debrid API key  (paid — realdebrid.com)\n"
                       "  • MPC-BE with its web interface enabled on port 13579"
@@ -490,13 +521,13 @@ class InstallerApp(tk.Tk):
                   ).pack(side="left", padx=4)
         return p
 
-    def _browse_root(self):
+    def _browse_install_dir(self):
         d = filedialog.askdirectory(
-            title="Select the Media Downloader project folder",
-            initialdir=self.root_var.get() or str(Path.home()),
+            title="Choose install location",
+            initialdir=self.install_var.get() or str(Path.home()),
         )
         if d:
-            self.root_var.set(d)
+            self.install_var.set(d)
 
     # ── Page 1: API Keys ──────────────────────────────────────────────────────
 
@@ -643,21 +674,18 @@ class InstallerApp(tk.Tk):
                       ).pack(side="left", padx=8)
         else:
             tk.Label(btn_row,
-                     text="Copy the project folder to your Windows PC "
+                     text="Transfer the install folder to your Windows PC "
                           "and run run_server.bat there.",
                      bg=BG, fg=MUTED, font=FONT_LABEL).pack()
         return p
 
     def _start_server_now(self):
-        root = Path(self.root_var.get())
+        root = Path(self.install_var.get())
         run_bat = root / "run_server.bat"
         if run_bat.exists():
             subprocess.Popen(["cmd", "/c", str(run_bat)], creationflags=_DETACHED)
         else:
-            messagebox.showwarning(
-                "Not found",
-                f"run_server.bat not found in:\n{root}"
-            )
+            messagebox.showwarning("Not found", f"run_server.bat not found in:\n{root}")
 
     # ── Install logic ─────────────────────────────────────────────────────────
 
@@ -669,33 +697,43 @@ class InstallerApp(tk.Tk):
             messagebox.showerror("Missing field", "Real-Debrid API Key is required.")
             self._show_page(1); return
 
-        root = Path(self.root_var.get())
+        dest = Path(self.install_var.get())
 
         self._btn_next.configure(state="disabled")
         self._btn_back.configure(state="disabled")
         self._show_page(4)
 
+        def _step0_extract():
+            _append_log(self._log_text, f"Installing to: {dest}\n\n")
+            _append_log(self._log_text, "Copying program files…\n")
+            try:
+                _extract_files(dest, lambda msg: _append_log(self._log_text, msg))
+                _append_log(self._log_text, "Files installed.\n\n")
+            except Exception as exc:
+                _append_log(self._log_text, f"\nERROR during file extraction: {exc}\n")
+                self._finish_install(False); return
+            _step1_write_env()
+
         def _step1_write_env():
-            _append_log(self._log_text, f"Project folder: {root}\n\n")
             _append_log(self._log_text, "Writing .env configuration…\n")
             vals = {k: v.get() for k, v in self.vals.items()}
             try:
-                _write_env(root, vals)
-                _append_log(self._log_text, f"  Saved: {root / '.env'}\n\n")
+                _write_env(dest, vals)
+                _append_log(self._log_text, f"  Saved: {dest / '.env'}\n\n")
             except Exception as exc:
                 _append_log(self._log_text, f"  ERROR: {exc}\n")
                 self._finish_install(False); return
 
             _append_log(self._log_text, "Locating Python interpreter…\n")
             try:
-                python = _find_python(root)
+                python = _find_python(dest)
                 _append_log(self._log_text, f"  Using: {python}\n\n")
             except RuntimeError as exc:
                 _append_log(self._log_text, f"  ERROR: {exc}\n")
                 self._finish_install(False); return
 
             _append_log(self._log_text, "Installing Python dependencies…\n")
-            _pip_install(root, python, self._log_text, _step2_after_pip)
+            _pip_install(dest, python, self._log_text, _step2_after_pip)
 
         def _step2_after_pip(ok: bool):
             if not ok:
@@ -705,7 +743,7 @@ class InstallerApp(tk.Tk):
             if self._install_task_var.get():
                 _append_log(self._log_text, "Creating Task Scheduler task…\n")
                 _create_task_scheduler(
-                    root, self.vals["PORT"].get(),
+                    dest, self.vals["PORT"].get(),
                     self._log_text, _step3_after_task)
             else:
                 _step3_after_task(True)
@@ -717,20 +755,21 @@ class InstallerApp(tk.Tk):
                 _append_log(self._log_text, msg)
             self._finish_install(True)
 
-        threading.Thread(target=_step1_write_env, daemon=True).start()
+        threading.Thread(target=_step0_extract, daemon=True).start()
 
     def _finish_install(self, ok: bool):
         port = self.vals["PORT"].get()
+        dest = Path(self.install_var.get())
         if ok:
             if IS_WINDOWS:
                 auto = ("auto-starts at login (Task Scheduler task registered)."
                         if self._install_task_var.get()
-                        else "run run_server.bat to start the server.")
+                        else f"run run_server.bat to start the server.")
             else:
-                auto = ("copy the project folder to your Windows PC "
-                        "and run run_server.bat there.")
+                auto = "run run_server.bat on Windows to start the server."
             self._done_msg.configure(
-                text=f"Done!\n\nNext: {auto}\n\n"
+                text=f"Installed to:\n{dest}\n\n"
+                     f"Server {auto}\n\n"
                      f"Then open http://localhost:{port} in a browser.",
                 fg=MUTED)
             self._done_icon.configure(text="✓", fg=SUCCESS)
@@ -738,8 +777,7 @@ class InstallerApp(tk.Tk):
             self._done_msg.configure(
                 text="Installation encountered errors.\n"
                      "Check the log on the previous screen.\n\n"
-                     "Fix the issue and run the installer again, "
-                     "or edit .env manually.",
+                     "Fix the issue and re-run the installer.",
                 fg=ERROR)
             self._done_icon.configure(text="✗", fg=ERROR)
 

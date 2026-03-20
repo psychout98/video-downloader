@@ -4,11 +4,14 @@ on:
   # Run manually from the Actions tab — click "Run workflow"
   workflow_dispatch:
 
-  # Also run automatically when you push changes to installer.pyw
+  # Also run automatically when you push relevant changes
   push:
     paths:
       - 'installer.pyw'
       - 'requirements.txt'
+      - 'run_server.bat'
+      - 'stop_server.bat'
+      - 'server/**'
       - '.github/workflows/build-installer.yml'
 
 jobs:
@@ -36,6 +39,10 @@ jobs:
             --distpath . `
             --workpath build\_pyinstaller `
             --specpath build `
+            --add-data "server;server" `
+            --add-data "run_server.bat;." `
+            --add-data "stop_server.bat;." `
+            --add-data "requirements.txt;." `
             installer.pyw
 
       - name: Upload EXE as artifact
@@ -43,5 +50,4 @@ jobs:
         with:
           name: MediaDownloader-Setup
           path: MediaDownloader-Setup.exe
-          # Artifact is kept for 30 days
           retention-days: 30

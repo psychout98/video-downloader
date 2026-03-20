@@ -9,7 +9,7 @@ REM    1. Push this repo to GitHub
 REM    2. Go to Actions → "Build Windows Installer" → Run workflow
 REM    3. Download MediaDownloader-Setup.exe from the Artifacts section
 REM
-REM  Output:  dist\MediaDownloader-Setup.exe
+REM  Output:  MediaDownloader-Setup.exe  (in this folder)
 REM ─────────────────────────────────────────────────────────────────
 cd /d "%~dp0"
 
@@ -25,6 +25,10 @@ pyinstaller ^
     --distpath . ^
     --workpath build\_pyinstaller ^
     --specpath build ^
+    --add-data "server;server" ^
+    --add-data "run_server.bat;." ^
+    --add-data "stop_server.bat;." ^
+    --add-data "requirements.txt;." ^
     installer.pyw
 
 if errorlevel 1 (
@@ -38,5 +42,6 @@ echo.
 echo ================================================================
 echo  Build complete!
 echo  Installer:  MediaDownloader-Setup.exe  (in this folder)
+echo  Run it on any Windows machine — no need to extract a zip first.
 echo ================================================================
 pause
