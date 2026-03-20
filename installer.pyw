@@ -356,7 +356,7 @@ class InstallerApp(tk.Tk):
         self.configure(bg=BG)
         self.resizable(False, False)
 
-        w, h = 680, 580
+        w, h = 680, 620
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
@@ -540,6 +540,39 @@ class InstallerApp(tk.Tk):
                   "This wizard will install Media Downloader and configure it "
                   "for your system.", muted=True)
 
+        # ── Uninstall section (shown when an existing install is detected) ──
+        self._uninstall_frame = tk.Frame(p, bg=SURFACE2,
+                                         highlightthickness=1,
+                                         highlightbackground=BORDER)
+        self._uninstall_frame.pack(fill="x", pady=(8, 0))
+
+        uninstall_left = tk.Frame(self._uninstall_frame, bg=SURFACE2)
+        uninstall_left.pack(side="left", fill="x", expand=True, padx=12, pady=8)
+        self._uninstall_detect_lbl = tk.Label(
+            uninstall_left, bg=SURFACE2, fg=SUCCESS, font=FONT_LABEL,
+            text="✓ Existing installation detected at this location.")
+        self._uninstall_detect_lbl.pack(anchor="w")
+        tk.Label(uninstall_left, bg=SURFACE2, fg=MUTED, font=FONT_LABEL,
+                 text="Stops the server, removes the task, and deletes the install folder. "
+                      "Media files are not touched."
+                 ).pack(anchor="w", pady=(2, 0))
+
+        self._uninstall_btn = tk.Button(
+            self._uninstall_frame, text="🗑 Uninstall",
+            bg=ERROR, fg="#fff", relief="flat",
+            font=("Segoe UI", 10, "bold"),
+            activebackground="#b84444", activeforeground="#fff",
+            cursor="hand2", padx=14, pady=6,
+            command=self._do_uninstall)
+        self._uninstall_btn.pack(side="right", padx=12, pady=8)
+
+        # Hide until detection confirms an install exists
+        self._uninstall_frame.pack_forget()
+
+        # Re-check whenever the install path changes
+        self.install_var.trace_add("write", lambda *_: self._refresh_uninstall_section())
+        self._refresh_uninstall_section()
+
         # ── Install location ──────────────────────────────────────────────
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=8)
         tk.Label(p, bg=BG, fg=TEXT, font=FONT_SUB,
@@ -588,38 +621,6 @@ class InstallerApp(tk.Tk):
                   command=lambda: webbrowser.open(
                       "https://real-debrid.com/apitoken")
                   ).pack(side="left", padx=4)
-
-        # ── Uninstall section (shown when an existing install is detected) ──
-        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=(14, 0))
-        self._uninstall_frame = tk.Frame(p, bg=BG)
-        self._uninstall_frame.pack(fill="x", pady=(8, 0))
-
-        uninstall_left = tk.Frame(self._uninstall_frame, bg=BG)
-        uninstall_left.pack(side="left", fill="x", expand=True)
-        self._uninstall_detect_lbl = tk.Label(
-            uninstall_left, bg=BG, fg=SUCCESS, font=FONT_LABEL,
-            text="✓ Existing installation detected at this location.")
-        self._uninstall_detect_lbl.pack(anchor="w")
-        tk.Label(uninstall_left, bg=BG, fg=MUTED, font=FONT_LABEL,
-                 text="Uninstall will stop the server, remove the Task Scheduler task, "
-                      "and delete the install folder. Media files are not touched."
-                 ).pack(anchor="w", pady=(2, 0))
-
-        self._uninstall_btn = tk.Button(
-            self._uninstall_frame, text="🗑 Uninstall",
-            bg=ERROR, fg="#fff", relief="flat",
-            font=("Segoe UI", 10, "bold"),
-            activebackground="#b84444", activeforeground="#fff",
-            cursor="hand2", padx=14, pady=6,
-            command=self._do_uninstall)
-        self._uninstall_btn.pack(side="right", padx=(12, 0))
-
-        # Hide until detection confirms an install exists
-        self._uninstall_frame.pack_forget()
-
-        # Re-check whenever the install path changes
-        self.install_var.trace_add("write", lambda *_: self._refresh_uninstall_section())
-        self._refresh_uninstall_section()
 
         return p
 
