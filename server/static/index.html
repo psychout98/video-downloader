@@ -4,254 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Media Downloader</title>
-<style>
-:root {
-  --bg:       #0c0c10;
-  --surface:  #16161e;
-  --surface2: #1e1e28;
-  --surface3: #26263200;
-  --border:   #2a2a38;
-  --accent:   #e5a00d;
-  --accent2:  #c27b00;
-  --text:     #e8e8f0;
-  --muted:    #7878a0;
-  --success:  #4caf7d;
-  --error:    #e05555;
-  --warning:  #f0a030;
-  --info:     #5b9cf6;
-  --r:        8px;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;overflow:hidden}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;display:flex;flex-direction:column}
-
-/* ── Tab bar ── */
-nav{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;height:52px;flex-shrink:0;gap:4px}
-.logo{font-size:17px;font-weight:700;color:var(--accent);margin-right:12px;white-space:nowrap}
-.logo span{color:var(--text);font-weight:400}
-.tab-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;font-weight:500;padding:6px 14px;border-radius:6px;transition:all .15s;white-space:nowrap}
-.tab-btn:hover{color:var(--text);background:var(--surface2)}
-.tab-btn.active{color:var(--accent);background:rgba(229,160,13,.1)}
-.nav-right{margin-left:auto;display:flex;align-items:center;gap:8px}
-.server-dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
-.server-dot.online{background:var(--success);box-shadow:0 0 6px var(--success)}
-.server-dot.error{background:var(--error)}
-
-/* ── Tab panes ── */
-.panes{flex:1;overflow:hidden;position:relative}
-.pane{position:absolute;inset:0;overflow-y:auto;display:none;padding:20px 16px}
-.pane.active{display:block}
-
-/* ── Shared ── */
-.btn{background:var(--accent);border:none;border-radius:var(--r);color:#111;cursor:pointer;font-size:13px;font-weight:600;padding:9px 20px;transition:background .15s;white-space:nowrap}
-.btn:hover{background:var(--accent2)}
-.btn:disabled{opacity:.4;cursor:not-allowed}
-.btn-sm{padding:5px 12px;font-size:12px}
-.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--muted);cursor:pointer;border-radius:6px;padding:5px 12px;font-size:12px;transition:all .15s}
-.btn-ghost:hover{border-color:var(--text);color:var(--text)}
-.btn-icon{background:var(--surface2);border:1px solid var(--border);border-radius:50%;color:var(--text);cursor:pointer;width:44px;height:44px;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all .15s}
-.btn-icon:hover{background:var(--surface);border-color:var(--accent);color:var(--accent)}
-.btn-icon.primary{background:var(--accent);border-color:var(--accent);color:#111;width:56px;height:56px;font-size:22px}
-.btn-icon.primary:hover{background:var(--accent2)}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px}
-.section-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:12px}
-.pill{border-radius:20px;font-size:11px;font-weight:600;padding:2px 8px;white-space:nowrap}
-.pill-4k    {background:rgba(229,160,13,.2);color:var(--accent)}
-.pill-hd    {background:rgba(91,156,246,.15);color:var(--info)}
-.pill-dv    {background:rgba(76,175,125,.15);color:var(--success)}
-.pill-atmos {background:rgba(240,160,48,.15);color:var(--warning)}
-.pill-cached{background:rgba(76,175,125,.15);color:var(--success)}
-.pill-queue {background:rgba(136,136,153,.15);color:var(--muted)}
-.pill-type  {background:rgba(91,156,246,.12);color:var(--info)}
-
-/* ─────────────────── QUEUE TAB ─────────────────── */
-.search-row{display:flex;gap:8px;margin-bottom:12px}
-.search-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-size:15px;padding:10px 14px;outline:none;transition:border-color .15s}
-.search-input:focus{border-color:var(--accent)}
-.search-input::placeholder{color:var(--muted)}
-.hint{font-size:12px;color:var(--muted);margin-bottom:20px}
-
-/* Stream picker panel */
-#stream-panel{display:none;margin-bottom:20px}
-.stream-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.stream-header h3{font-size:15px;font-weight:600}
-.stream-header .year{color:var(--muted);font-size:13px}
-.stream-list{display:flex;flex-direction:column;gap:8px}
-.stream-card{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px;cursor:pointer;transition:border-color .15s;display:flex;align-items:center;gap:12px}
-.stream-card:hover{border-color:var(--accent)}
-.stream-card.best{border-color:rgba(229,160,13,.4);background:rgba(229,160,13,.04)}
-.stream-badges{display:flex;flex-wrap:wrap;gap:4px;flex:1}
-.stream-meta{font-size:11px;color:var(--muted);text-align:right;flex-shrink:0;line-height:1.8}
-.stream-name{font-size:11px;color:var(--muted);margin-top:4px;word-break:break-all}
-.no-streams{text-align:center;padding:30px;color:var(--muted);font-size:13px}
-
-/* Toast */
-#toast{margin-top:10px;padding:9px 14px;border-radius:var(--r);font-size:13px;display:none}
-#toast.success{background:rgba(76,175,125,.12);color:var(--success);border:1px solid var(--success)}
-#toast.error  {background:rgba(224,85,85,.12); color:var(--error);  border:1px solid var(--error)}
-
-/* Job cards */
-.jobs-header{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-.jobs-title{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
-#job-count{background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:2px 8px;font-size:11px;color:var(--muted)}
-.filter-tabs{margin-left:auto;display:flex;gap:4px}
-.ftab{background:transparent;border:1px solid transparent;border-radius:5px;color:var(--muted);cursor:pointer;font-size:12px;padding:3px 10px;transition:all .15s}
-.ftab:hover{color:var(--text);border-color:var(--border)}
-.ftab.active{border-color:var(--accent);color:var(--accent);background:rgba(229,160,13,.08)}
-.job-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:8px;transition:border-color .2s}
-.job-card.running{border-left:3px solid var(--accent)}
-.job-top{display:flex;align-items:flex-start;gap:10px}
-.job-icon{font-size:20px;flex-shrink:0;line-height:1.2}
-.job-info{flex:1;min-width:0}
-.job-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.job-meta{display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap}
-.status-badge{border-radius:20px;font-size:11px;font-weight:600;padding:2px 8px;white-space:nowrap}
-.s-pending        {background:rgba(120,120,160,.15);color:var(--muted)}
-.s-searching      {background:rgba(91,156,246,.15);color:var(--info)}
-.s-found          {background:rgba(91,156,246,.15);color:var(--info)}
-.s-adding_to_rd   {background:rgba(240,160,48,.15);color:var(--warning)}
-.s-waiting_for_rd {background:rgba(240,160,48,.15);color:var(--warning)}
-.s-downloading    {background:rgba(229,160,13,.15);color:var(--accent)}
-.s-organizing     {background:rgba(91,156,246,.15);color:var(--info)}
-.s-complete       {background:rgba(76,175,125,.15);color:var(--success)}
-.s-failed         {background:rgba(224,85,85,.15);color:var(--error)}
-.s-cancelled      {background:rgba(120,120,160,.15);color:var(--muted)}
-.meta-txt{font-size:11px;color:var(--muted)}
-.job-actions{display:flex;gap:5px;flex-shrink:0}
-.progress-wrap{margin-top:10px}
-.progress-bar{height:3px;background:var(--surface2);border-radius:2px;overflow:hidden}
-.progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
-.progress-fill.done{background:var(--success)}
-.progress-fill.fail{background:var(--error)}
-.progress-row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px}
-.job-path{margin-top:6px;font-size:11px;color:var(--success);font-family:monospace;word-break:break-all}
-.job-error{margin-top:6px;padding:7px 10px;background:rgba(224,85,85,.08);border:1px solid rgba(224,85,85,.25);border-radius:5px;font-size:12px;color:var(--error)}
-.log-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;padding:0;margin-top:6px;text-decoration:underline}
-.log-toggle:hover{color:var(--text)}
-.job-log{display:none;margin-top:6px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:8px 10px;font-family:monospace;font-size:11px;color:var(--muted);max-height:160px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.6}
-.empty-state{text-align:center;padding:50px 20px;color:var(--muted)}
-.empty-state .ei{font-size:40px;margin-bottom:10px}
-.empty-state h3{font-size:15px;color:var(--text);margin-bottom:5px}
-
-/* ── Spinner ── */
-@keyframes spin{to{transform:rotate(360deg)}}
-.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:4px}
-
-/* ── Loading overlay ── */
-#search-loading{display:none;position:fixed;inset:0;background:rgba(12,12,16,.7);z-index:200;align-items:center;justify-content:center;flex-direction:column;gap:14px}
-#search-loading.show{display:flex}
-.loading-spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite}
-.loading-label{color:var(--text);font-size:14px}
-
-/* ─────────────────── LIBRARY TAB ─────────────────── */
-.lib-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-.lib-search{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-size:14px;padding:8px 12px;outline:none;width:220px;transition:border-color .15s}
-.lib-search:focus{border-color:var(--accent)}
-.lib-search::placeholder{color:var(--muted)}
-.lib-type-btns{display:flex;gap:4px}
-.lib-type-btn{background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:12px;padding:5px 12px;transition:all .15s}
-.lib-type-btn:hover{color:var(--text);border-color:var(--text)}
-.lib-type-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(229,160,13,.08)}
-.lib-count{margin-left:auto;font-size:12px;color:var(--muted)}
-
-.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
-@media(min-width:600px){.lib-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px}}
-@media(min-width:900px){.lib-grid{grid-template-columns:repeat(auto-fill,minmax(170px,1fr))}}
-
-.lib-card{cursor:pointer;border-radius:var(--r);overflow:hidden;transition:transform .15s,box-shadow .15s;background:var(--surface)}
-.lib-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
-.lib-card:active{transform:translateY(0)}
-.lib-poster-wrap{position:relative}
-.lib-poster{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;background:var(--surface2)}
-.lib-poster-placeholder{width:100%;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;font-size:28px;position:relative;overflow:hidden}
-.storage-badge{position:absolute;top:6px;left:6px;font-size:9px;font-weight:800;letter-spacing:.5px;padding:2px 5px;border-radius:3px;pointer-events:none}
-.storage-new{background:#16a34a;color:#fff}
-.storage-archive{background:#6b7280;color:#fff}
-.storage-mixed{background:#9333ea;color:#fff}
-.lib-poster-placeholder .pt{font-size:11px;font-weight:700;text-align:center;padding:0 8px;z-index:1;line-height:1.3;word-break:break-word;max-width:100%}
-.lib-poster-placeholder::before{content:'';position:absolute;inset:0;opacity:.08;background:repeating-linear-gradient(45deg,#fff 0,#fff 1px,transparent 0,transparent 50%);background-size:8px 8px}
-.lib-card-info{padding:8px 10px}
-.lib-card-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lib-card-year{font-size:11px;color:var(--muted)}
-.lib-section{margin-bottom:32px}
-.lib-section-header{display:flex;align-items:center;gap:8px;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--border)}
-.lib-section-title{font-size:13px;font-weight:700;color:var(--text);letter-spacing:.4px}
-.lib-section-count{background:var(--surface2);border:1px solid var(--border);border-radius:20px;font-size:11px;padding:1px 8px;color:var(--muted);font-weight:600}
-
-/* ── Media detail modal ── */
-.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;align-items:center;justify-content:center;padding:16px}
-.modal-bg.show{display:flex}
-.modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:520px;overflow:hidden;max-height:90vh;display:flex;flex-direction:column}
-.modal-poster-row{display:flex;gap:0;min-height:0}
-.modal-poster{width:140px;flex-shrink:0;background:var(--surface2)}
-.modal-poster img,.modal-poster-ph{width:100%;height:210px;object-fit:cover;display:block}
-.modal-poster-ph{display:flex;align-items:center;justify-content:center;font-size:40px;background:var(--surface2)}
-.modal-body{flex:1;padding:18px;overflow-y:auto;min-width:0}
-.modal-title{font-size:17px;font-weight:700;margin-bottom:4px}
-.modal-year{font-size:13px;color:var(--muted);margin-bottom:10px}
-.modal-tags{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.modal-path{font-size:11px;color:var(--muted);font-family:monospace;word-break:break-all;margin-bottom:14px;line-height:1.5}
-.modal-actions{display:flex;gap:8px;flex-wrap:wrap}
-.modal-close{position:absolute;top:12px;right:12px;background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:30px;height:30px;cursor:pointer;font-size:16px;color:var(--muted);display:flex;align-items:center;justify-content:center}
-.modal-close:hover{color:var(--text)}
-.modal-wrap{position:relative}
-
-/* ── Episode list (inside modal) ── */
-.modal-episodes{border-top:1px solid var(--border);overflow-y:auto;flex-shrink:1;min-height:0;max-height:340px}
-.ep-season-header{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:10px 16px 6px;position:sticky;top:0;background:var(--surface);z-index:1}
-.ep-row{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid rgba(255,255,255,.04);transition:background .1s}
-.ep-row:hover{background:var(--surface2)}
-.ep-play{background:var(--surface2);border:1px solid var(--border);border-radius:50%;width:30px;height:30px;min-width:30px;cursor:pointer;font-size:12px;color:var(--accent);display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
-.ep-play:hover{background:var(--accent);border-color:var(--accent);color:#111}
-.ep-info{flex:1;min-width:0}
-.ep-label{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;margin-bottom:1px}
-.ep-title{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ep-progress-wrap{width:60px;flex-shrink:0;text-align:right}
-.ep-bar{height:3px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-top:4px}
-.ep-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s}
-.ep-pct{font-size:10px;color:var(--muted)}
-.ep-done{color:var(--success);font-size:14px}
-
-/* ─────────────────── NOW PLAYING TAB ─────────────────── */
-.np-container{max-width:520px;margin:0 auto;padding:10px 0}
-.np-idle{text-align:center;padding:60px 20px;color:var(--muted)}
-.np-idle .ni{font-size:52px;margin-bottom:12px}
-.np-idle h3{font-size:16px;color:var(--text);margin-bottom:6px}
-.np-player{display:none}
-.np-title{font-size:16px;font-weight:600;text-align:center;margin-bottom:4px;word-break:break-word;line-height:1.3}
-.np-file{font-size:11px;color:var(--muted);text-align:center;margin-bottom:20px;font-family:monospace;word-break:break-all}
-.np-progress-wrap{margin-bottom:6px;cursor:pointer}
-.np-progress-bar{height:5px;background:var(--surface2);border-radius:3px;overflow:hidden}
-.np-progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .5s linear}
-.np-times{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:24px}
-.np-controls{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:24px}
-.np-vol-row{display:flex;align-items:center;gap:10px;margin-bottom:20px}
-.np-vol-icon{font-size:16px;color:var(--muted);width:20px;text-align:center;cursor:pointer;user-select:none}
-.np-vol-icon:hover{color:var(--text)}
-input[type=range].vol-slider{flex:1;-webkit-appearance:none;appearance:none;height:4px;background:var(--surface2);border-radius:2px;outline:none}
-input[type=range].vol-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;background:var(--accent);border-radius:50%;cursor:pointer}
-input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background:var(--accent);border-radius:50%;cursor:pointer;border:none}
-.np-vol-pct{font-size:12px;color:var(--muted);min-width:32px;text-align:right}
-.np-status-row{display:flex;justify-content:center;margin-bottom:8px}
-.np-error{text-align:center;font-size:12px;color:var(--error);padding:8px}
-
-/* ─────────────────── SETTINGS TAB ─────────────────── */
-.settings-section{margin-bottom:28px}
-.settings-section-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;padding-bottom:6px;border-bottom:1px solid var(--border)}
-.settings-grid{display:grid;grid-template-columns:1fr;gap:10px}
-@media(min-width:700px){.settings-grid{grid-template-columns:1fr 1fr}}
-.settings-field{display:flex;flex-direction:column;gap:4px}
-.settings-label{font-size:12px;color:var(--muted);font-weight:500}
-.settings-input{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);color:var(--text);font-size:13px;padding:8px 10px;outline:none;transition:border-color .15s;font-family:inherit}
-.settings-input:focus{border-color:var(--accent)}
-.settings-hint{font-size:11px;color:var(--muted);font-style:italic}
-.settings-actions{display:flex;gap:10px;align-items:center;margin-top:4px}
-.settings-save-toast{font-size:13px;color:var(--success);display:none}
-.log-viewer{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;font-family:monospace;font-size:11px;color:var(--muted);height:260px;overflow-y:auto;white-space:pre;line-height:1.6;resize:vertical}
-.control-btns{display:flex;gap:10px;flex-wrap:wrap}
-.btn-danger{background:rgba(224,85,85,.12);border:1px solid rgba(224,85,85,.4);color:var(--error);cursor:pointer;border-radius:var(--r);padding:9px 20px;font-size:13px;font-weight:600;transition:all .15s}
-.btn-danger:hover{background:rgba(224,85,85,.22);border-color:var(--error)}
-</style>
+<link rel="stylesheet" href="/static/css/main.css"/>
 </head>
 <body>
 
@@ -267,14 +20,16 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
   </div>
 </nav>
 
-<!-- ── Panes ── -->
+<!-- ── Tab panes ── -->
 <div class="panes">
 
   <!-- ════════════════ QUEUE ════════════════ -->
   <div id="pane-queue" class="pane active">
     <div class="section-title">New Download</div>
     <div class="search-row">
-      <input id="q-input" class="search-input" placeholder="Inception · Breaking Bad S01 · imdb.com/title/…" autocomplete="off" spellcheck="false"/>
+      <input id="q-input" class="search-input"
+             placeholder="Inception · Breaking Bad S01 · imdb.com/title/…"
+             autocomplete="off" spellcheck="false"/>
       <button class="btn" onclick="doSearch()">Search</button>
     </div>
     <p class="hint">Searches TMDB then shows available sources so you can pick the version you want.</p>
@@ -307,7 +62,8 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
   <!-- ════════════════ LIBRARY ════════════════ -->
   <div id="pane-library" class="pane">
     <div class="lib-toolbar">
-      <input id="lib-search" class="lib-search" placeholder="Filter…" oninput="filterLib()" autocomplete="off"/>
+      <input id="lib-search" class="lib-search" placeholder="Filter…"
+             oninput="filterLib()" autocomplete="off"/>
       <div class="lib-type-btns">
         <button class="lib-type-btn active" onclick="setLibType('all',this)">All</button>
         <button class="lib-type-btn"        onclick="setLibType('movie',this)">Movies</button>
@@ -315,7 +71,9 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <button class="lib-type-btn"        onclick="setLibType('anime',this)">Anime</button>
       </div>
       <span id="lib-count" class="lib-count"></span>
-      <button class="btn-ghost" style="margin-left:auto" onclick="loadLibrary(true)" title="Refresh library and re-fetch all posters from TMDB">↺ Refresh Posters</button>
+      <button class="btn-ghost" style="margin-left:auto"
+              onclick="loadLibrary(true)"
+              title="Refresh library and re-fetch all posters from TMDB">↺ Refresh Posters</button>
     </div>
     <div id="lib-sections"></div>
   </div>
@@ -332,19 +90,25 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <div class="np-title" id="np-title">—</div>
         <div class="np-file"  id="np-file"></div>
         <div class="np-progress-wrap" id="np-seek">
-          <div class="np-progress-bar"><div class="np-progress-fill" id="np-fill" style="width:0%"></div></div>
+          <div class="np-progress-bar">
+            <div class="np-progress-fill" id="np-fill" style="width:0%"></div>
+          </div>
         </div>
-        <div class="np-times"><span id="np-pos">0:00</span><span id="np-dur">0:00</span></div>
+        <div class="np-times">
+          <span id="np-pos">0:00</span>
+          <span id="np-dur">0:00</span>
+        </div>
         <div class="np-controls">
-          <button class="btn-icon" onclick="mpcCmd(887+12)" title="Skip back 30s">⏮ 30s</button><!-- wm_command seek handled via JS -->
-          <button class="btn-icon" onclick="mpcSeekRel(-30000)" title="Skip back 30s">⏪</button>
+          <button class="btn-icon" onclick="mpcSeekRel(-30000)" title="Back 30s">⏪</button>
           <button class="btn-icon primary" id="np-playpause" onclick="mpcPlayPause()">▶</button>
-          <button class="btn-icon" onclick="mpcSeekRel(30000)" title="Skip fwd 30s">⏩</button>
-          <button class="btn-icon" onclick="mpcCmd(888)" title="Stop">⏹</button>
+          <button class="btn-icon" onclick="mpcSeekRel(30000)"  title="Fwd 30s">⏩</button>
+          <button class="btn-icon" onclick="mpcCmd(888)"        title="Stop">⏹</button>
         </div>
         <div class="np-vol-row">
           <span class="np-vol-icon" id="mute-icon" onclick="mpcCmd(909)" title="Mute">🔊</span>
-          <input type="range" class="vol-slider" id="vol-slider" min="0" max="100" value="100" oninput="onVolSlider(this.value)" onchange="setVolume(this.value)"/>
+          <input type="range" class="vol-slider" id="vol-slider"
+                 min="0" max="100" value="100"
+                 oninput="onVolSlider(this.value)" onchange="setVolume(this.value)"/>
           <span class="np-vol-pct" id="vol-pct">100%</span>
         </div>
         <div id="np-error" class="np-error" style="display:none"></div>
@@ -355,7 +119,6 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
   <!-- ════════════════ SETTINGS ════════════════ -->
   <div id="pane-settings" class="pane">
 
-    <!-- ── Configuration ── -->
     <div class="settings-section">
       <div class="settings-section-title">⚙ Configuration</div>
       <div class="settings-grid">
@@ -370,7 +133,7 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <div class="settings-field">
           <label class="settings-label">Webhook Secret Key</label>
           <input class="settings-input" id="cfg-SECRET_KEY" type="text" autocomplete="off"/>
-          <span class="settings-hint">Used to secure the Siri shortcut endpoint. Set to "change-me" to disable auth.</span>
+          <span class="settings-hint">Set to "change-me" to disable auth.</span>
         </div>
         <div class="settings-field">
           <label class="settings-label">MPC-BE Executable Path</label>
@@ -379,7 +142,7 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <div class="settings-field">
           <label class="settings-label">Watch Threshold (0.0 – 1.0)</label>
           <input class="settings-input" id="cfg-WATCH_THRESHOLD" type="number" min="0.5" max="1.0" step="0.05"/>
-          <span class="settings-hint">Fraction of video that must be watched before archiving (default: 0.85)</span>
+          <span class="settings-hint">Fraction watched before archiving (default 0.85)</span>
         </div>
         <div class="settings-field">
           <label class="settings-label">Server Port</label>
@@ -387,9 +150,10 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         </div>
       </div>
 
-      <!-- Directories — full width -->
       <div style="margin-top:14px">
-        <div class="settings-label" style="margin-bottom:8px;color:var(--text);font-size:12px;font-weight:600">Primary Media Directories (fast drive — new downloads)</div>
+        <div class="settings-label" style="margin-bottom:8px;color:var(--text);font-size:12px;font-weight:600">
+          Primary Media Directories (fast drive — new downloads)
+        </div>
         <div class="settings-grid">
           <div class="settings-field">
             <label class="settings-label">Movies</label>
@@ -411,7 +175,9 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
       </div>
 
       <div style="margin-top:14px">
-        <div class="settings-label" style="margin-bottom:8px;color:var(--text);font-size:12px;font-weight:600">Archive Media Directories (slow drive — watched content)</div>
+        <div class="settings-label" style="margin-bottom:8px;color:var(--text);font-size:12px;font-weight:600">
+          Archive Media Directories (slow drive — watched content)
+        </div>
         <div class="settings-grid">
           <div class="settings-field">
             <label class="settings-label">Movies Archive</label>
@@ -436,14 +202,16 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
         <span id="settings-save-toast" class="settings-save-toast"></span>
       </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:8px">⚠ Restart the server after saving for changes to take effect.</p>
+      <p style="font-size:11px;color:var(--muted);margin-top:8px">
+        ⚠ Restart the server after saving for changes to take effect.
+      </p>
     </div>
 
-    <!-- ── Server Logs ── -->
     <div class="settings-section">
       <div class="settings-section-title" style="display:flex;align-items:center;gap:10px">
         <span>📋 Server Logs</span>
-        <button class="btn-ghost" style="margin-left:auto;font-size:11px;padding:3px 10px" onclick="loadLogs()">↺ Refresh</button>
+        <button class="btn-ghost" style="margin-left:auto;font-size:11px;padding:3px 10px"
+                onclick="loadLogs()">↺ Refresh</button>
         <label style="font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px;cursor:pointer">
           <input type="checkbox" id="log-autoscroll" checked/> Auto-scroll
         </label>
@@ -451,7 +219,6 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
       <div id="log-viewer" class="log-viewer">Loading logs…</div>
     </div>
 
-    <!-- ── Server Control ── -->
     <div class="settings-section">
       <div class="settings-section-title">🔧 Server Control</div>
       <div class="control-btns">
@@ -483,12 +250,11 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <div class="modal-tags"  id="modal-tags"></div>
         <div class="modal-path"  id="modal-path"></div>
         <div class="modal-actions">
-          <button class="btn" id="modal-play-btn" onclick="playInMPC()">▶ Play in MPC-BE</button>
-          <button class="btn-ghost" onclick="closeModalDirect()">Close</button>
+          <button class="btn"       id="modal-play-btn" onclick="playInMPC()">▶ Play in MPC-BE</button>
+          <button class="btn-ghost"                     onclick="closeModalDirect()">Close</button>
         </div>
       </div>
     </div>
-    <!-- Episode list — only shown for TV/anime -->
     <div id="modal-episodes" class="modal-episodes" style="display:none"></div>
   </div>
 </div>
@@ -496,791 +262,16 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
 <!-- ── Search loading overlay ── -->
 <div id="search-loading">
   <div class="loading-spinner"></div>
-  <div class="loading-label" id="loading-label">Searching TMDB &amp; torrent sources…</div>
+  <div class="loading-label" id="loading-label">Searching…</div>
 </div>
 
-<script>
-// ══════════════════════════════════════════════════
-//  State
-// ══════════════════════════════════════════════════
-let currentTab    = 'queue';
-let jobFilter     = 'all';
-let libTypeFilter = 'all';
-let expandedLogs  = new Set();
-let lastJobs      = [];
-let libItems      = [];
-let currentSearchId = null;
-let selectedMedia   = null;   // for modal
-let _episodeList    = [];     // flat episode array for current modal (indexed by onclick)
-let npStatus        = null;   // latest MPC-BE status
-let npPollTimer     = null;   // fast poll (2 s) when NP tab is active
-let npBgTimer       = null;   // slow background poll (5 s) on all other tabs
-let _mpcLaunching   = false;  // true while MPC-BE is starting up (suppress error flash)
-let volDragging     = false;
+<!-- ── Scripts (order matters: utils → app state → feature modules) ── -->
+<script src="/static/js/utils.js"></script>
+<script src="/static/js/app.js"></script>
+<script src="/static/js/queue.js"></script>
+<script src="/static/js/library.js"></script>
+<script src="/static/js/nowplaying.js"></script>
+<script src="/static/js/settings.js"></script>
 
-// ══════════════════════════════════════════════════
-//  Tab switching
-// ══════════════════════════════════════════════════
-function switchTab(tab, btn) {
-  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('pane-' + tab).classList.add('active');
-  btn.classList.add('active');
-  currentTab = tab;
-  if (tab === 'library') loadLibrary();
-  if (tab === 'settings') { loadSettingsForm(); loadLogs(); }
-  if (tab === 'nowplaying') {
-    // Switch to fast poll; stop the slow background poll to avoid duplication
-    clearInterval(npBgTimer); npBgTimer = null;
-    startNPPoll(); refreshNP();
-  } else {
-    // Switch back to slow background poll while on other tabs
-    stopNPPoll();
-    if (!npBgTimer) npBgTimer = setInterval(refreshNP, 5000);
-  }
-}
-
-// ══════════════════════════════════════════════════
-//  Utilities
-// ══════════════════════════════════════════════════
-function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
-function fmtSize(b){if(!b)return'';if(b>=1e12)return(b/1e12).toFixed(1)+' TB';if(b>=1e9)return(b/1e9).toFixed(1)+' GB';if(b>=1e6)return(b/1e6).toFixed(1)+' MB';return(b/1e3|0)+' KB'}
-function fmtMs(ms){if(!ms)return'0:00';const s=ms/1000|0,h=s/3600|0,m=(s%3600)/60|0,sec=s%60;return h?`${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`:`${m}:${String(sec).padStart(2,'0')}`}
-function timeAgo(iso){if(!iso)return'';const s=(Date.now()-new Date(iso))/1000;if(s<60)return`${s|0}s ago`;if(s<3600)return`${s/60|0}m ago`;return`${s/3600|0}h ago`}
-function isActive(status){return['pending','searching','found','adding_to_rd','waiting_for_rd','downloading','organizing'].includes(status)}
-function hashColor(str){let h=0;for(const c of str)h=(h*31+c.charCodeAt(0))&0xffffffff;const hue=(h>>>0)%360;return`hsl(${hue},40%,22%)`}
-
-const STATUS_LABELS = {
-  pending:'Pending', searching:'Searching…', found:'Found', adding_to_rd:'Adding to RD…',
-  waiting_for_rd:'Waiting for RD…', downloading:'Downloading', organizing:'Organising…',
-  complete:'Complete', failed:'Failed', cancelled:'Cancelled'
-};
-const TYPE_ICONS = {movie:'🎬', tv:'📺', anime:'🎌'};
-
-// ══════════════════════════════════════════════════
-//  QUEUE — Search
-// ══════════════════════════════════════════════════
-async function doSearch() {
-  const q = document.getElementById('q-input').value.trim();
-  if (!q) return;
-  showLoading('Searching TMDB &amp; torrent sources…');
-  hideStreamPanel();
-  try {
-    const r = await fetch('/api/search', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({query: q})
-    });
-    const data = await r.json();
-    if (!r.ok) { showToast('Search failed: ' + (data.detail||'unknown error'), 'error'); return; }
-    currentSearchId = data.search_id;
-    renderStreamPanel(data.media, data.streams);
-  } catch(e) {
-    showToast('Network error: ' + e.message, 'error');
-  } finally {
-    hideLoading();
-  }
-}
-
-function renderStreamPanel(media, streams) {
-  document.getElementById('sp-title').textContent = media.title || '—';
-  document.getElementById('sp-year').textContent  = media.year ? `(${media.year})` : '';
-  document.getElementById('sp-type').textContent  = (media.type||'').toUpperCase();
-
-  const list = document.getElementById('stream-list');
-  if (!streams.length) {
-    list.innerHTML = '<div class="no-streams">No streams found. Try a different query.</div>';
-    document.getElementById('stream-panel').style.display = 'block';
-    return;
-  }
-
-  list.innerHTML = streams.map((s, i) => {
-    const badges = buildBadgeHTML(s);
-    const size   = s.size_bytes ? fmtSize(s.size_bytes) : '';
-    const seeds  = s.seeders    ? `${s.seeders} seeds` : '';
-    const cached = s.is_cached_rd ? '<span class="pill pill-cached">⚡ Cached</span>' : '<span class="pill pill-queue">⏳ Queue</span>';
-    const bestTag = i === 0 ? ' best' : '';
-    return `
-      <div class="stream-card${bestTag}" onclick="confirmDownload(${i})">
-        <div style="flex:1;min-width:0">
-          <div class="stream-badges">${badges} ${cached}</div>
-          <div class="stream-name">${esc(s.name.slice(0,100))}</div>
-        </div>
-        <div class="stream-meta">
-          ${size ? size + '<br>' : ''}
-          ${seeds}
-        </div>
-      </div>`;
-  }).join('');
-
-  document.getElementById('stream-panel').style.display = 'block';
-}
-
-function buildBadgeHTML(s) {
-  const parts = [];
-  if (s.resolution) {
-    const cls = (s.resolution.startsWith('4') || s.resolution === '2160P') ? 'pill-4k' : 'pill-hd';
-    parts.push(`<span class="pill ${cls}">${s.resolution}</span>`);
-  }
-  if (s.hdr && (s.hdr.includes('dv') || s.hdr.includes('dolby') || s.hdr.includes('dovi')))
-    parts.push('<span class="pill pill-dv">DV</span>');
-  else if (s.hdr && s.hdr.includes('hdr'))
-    parts.push('<span class="pill pill-dv" style="background:rgba(91,156,246,.15);color:var(--info)">HDR</span>');
-  if (s.audio && s.audio.includes('atmos'))
-    parts.push('<span class="pill pill-atmos">Atmos</span>');
-  else if (s.audio && s.audio.includes('truehd'))
-    parts.push('<span class="pill pill-atmos">TrueHD</span>');
-  else if (s.audio && s.audio.includes('dts'))
-    parts.push('<span class="pill pill-atmos" style="background:rgba(91,156,246,.1);color:var(--info)">DTS-HD</span>');
-  if (s.channels === '7.1') parts.push('<span class="pill pill-queue">7.1</span>');
-  else if (s.channels === '5.1') parts.push('<span class="pill pill-queue">5.1</span>');
-  if (s.source) {
-    const src = s.source.includes('remux') ? 'Remux'
-      : s.source.includes('blu') || s.source.includes('bd') ? 'BluRay'
-      : s.source.includes('web') ? (s.source.includes('dl') ? 'WEB-DL' : 'WEBRip')
-      : s.source.toUpperCase();
-    parts.push(`<span class="pill" style="background:var(--surface);border:1px solid var(--border);color:var(--muted)">${src}</span>`);
-  }
-  return parts.join('') || `<span class="pill pill-queue">${esc((s.quality_str||'Unknown').slice(0,30))}</span>`;
-}
-
-function hideStreamPanel() {
-  document.getElementById('stream-panel').style.display = 'none';
-  document.getElementById('stream-list').innerHTML = '';
-  currentSearchId = null;
-}
-
-async function confirmDownload(streamIndex) {
-  if (!currentSearchId) return;
-  try {
-    const r = await fetch('/api/download', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({search_id: currentSearchId, stream_index: streamIndex})
-    });
-    const data = await r.json();
-    if (r.ok) {
-      showToast('✓ ' + (data.message || 'Download queued'), 'success');
-      hideStreamPanel();
-      document.getElementById('q-input').value = '';
-      await refreshJobs();
-    } else {
-      showToast('Error: ' + (data.detail || JSON.stringify(data)), 'error');
-    }
-  } catch(e) {
-    showToast('Network error: ' + e.message, 'error');
-  }
-}
-
-document.getElementById('q-input').addEventListener('keydown', e => { if(e.key==='Enter') doSearch(); });
-
-function showLoading(msg) {
-  document.getElementById('loading-label').innerHTML = msg;
-  document.getElementById('search-loading').classList.add('show');
-}
-function hideLoading() { document.getElementById('search-loading').classList.remove('show'); }
-function showToast(msg, type) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.className = type; t.style.display = 'block';
-  setTimeout(() => t.style.display = 'none', 5000);
-}
-
-// ══════════════════════════════════════════════════
-//  QUEUE — Job list
-// ══════════════════════════════════════════════════
-function setFilter(f, btn) {
-  jobFilter = f;
-  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderJobs(lastJobs);
-}
-
-function renderJobs(jobs) {
-  const filtered = jobs.filter(j => {
-    if (jobFilter === 'active')   return isActive(j.status);
-    if (jobFilter === 'complete') return j.status === 'complete';
-    if (jobFilter === 'failed')   return j.status === 'failed' || j.status === 'cancelled';
-    return true;
-  });
-  document.getElementById('job-count').textContent = filtered.length;
-  const el = document.getElementById('jobs-container');
-  if (!filtered.length) {
-    el.innerHTML = '<div class="empty-state"><div class="ei">📭</div><h3>No jobs</h3><p style="color:var(--muted);font-size:13px">Search above to queue a download.</p></div>';
-    return;
-  }
-  el.innerHTML = filtered.map(renderJob).join('');
-  filtered.forEach(j => {
-    const lb = document.getElementById('lb-' + j.id);
-    if (lb) lb.onclick = () => toggleLog(j.id);
-  });
-}
-
-function renderJob(j) {
-  const active = isActive(j.status);
-  const pct    = Math.round((j.progress||0)*100);
-  const title  = j.title ? (j.year ? `${j.title} (${j.year})` : j.title) : j.query;
-  const icon   = TYPE_ICONS[j.type] || '📄';
-  const logOpen = expandedLogs.has(j.id);
-  const spinner = active && j.status !== 'downloading' ? '<span class="spin"></span>' : '';
-
-  let prog = '';
-  if (active || j.status === 'complete') {
-    const fc = j.status==='complete'?'done':j.status==='failed'?'fail':'';
-    const szLabel = j.size_bytes ? `${fmtSize(j.downloaded_bytes||0)} / ${fmtSize(j.size_bytes)}` : '';
-    prog = `<div class="progress-wrap">
-      <div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
-      <div class="progress-row"><span>${pct}%</span><span>${szLabel}</span></div>
-    </div>`;
-  }
-
-  let actions = '';
-  if (active) actions = `<button class="btn-ghost btn-sm" onclick="cancelJob('${j.id}')">Cancel</button>`;
-  else if (j.status==='failed'||j.status==='cancelled') actions = `<button class="btn btn-sm" onclick="retryJob('${j.id}')">Retry</button><button class="btn-ghost btn-sm" onclick="deleteJob('${j.id}')">Delete</button>`;
-  else if (j.status==='complete') actions = `<button class="btn-ghost btn-sm" onclick="deleteJob('${j.id}')">Remove</button>`;
-
-  const qualPill = j.quality ? `<span class="pill" style="background:rgba(229,160,13,.1);color:var(--accent)">${esc(j.quality)}</span>` : '';
-
-  return `<div class="job-card ${active?'running':''}" id="jc-${j.id}">
-    <div class="job-top">
-      <div class="job-icon">${icon}</div>
-      <div class="job-info">
-        <div class="job-title">${esc(title)}</div>
-        <div class="job-meta">
-          <span class="status-badge s-${j.status}">${spinner}${STATUS_LABELS[j.status]||j.status}</span>
-          ${j.type ? `<span class="pill pill-type">${j.type.toUpperCase()}</span>` : ''}
-          ${qualPill}
-          ${j.size_bytes ? `<span class="meta-txt">${fmtSize(j.size_bytes)}</span>` : ''}
-          <span class="meta-txt">${timeAgo(j.created_at)}</span>
-        </div>
-      </div>
-      <div class="job-actions">${actions}</div>
-    </div>
-    ${prog}
-    ${j.status==='complete'&&j.file_path?`<div class="job-path">📁 ${esc(j.file_path)}</div>`:''}
-    ${j.error?`<div class="job-error">⚠ ${esc(j.error)}</div>`:''}
-    ${j.log?`<button class="log-toggle" id="lb-${j.id}">${logOpen?'▲ hide log':'▼ show log'}</button><pre class="job-log" id="jlog-${j.id}" style="display:${logOpen?'block':'none'}">${esc(j.log.trim())}</pre>`:''}
-  </div>`;
-}
-
-function toggleLog(id) {
-  expandedLogs.has(id) ? expandedLogs.delete(id) : expandedLogs.add(id);
-  const el = document.getElementById('jlog-'+id);
-  const lb = document.getElementById('lb-'+id);
-  if (el) el.style.display = expandedLogs.has(id) ? 'block' : 'none';
-  if (lb) lb.textContent = expandedLogs.has(id) ? '▲ hide log' : '▼ show log';
-  if (el && expandedLogs.has(id)) el.scrollTop = el.scrollHeight;
-}
-
-async function cancelJob(id) { await fetch(`/api/jobs/${id}`,{method:'DELETE'}); await refreshJobs(); }
-async function deleteJob(id)  { await fetch(`/api/jobs/${id}`,{method:'DELETE'}); await refreshJobs(); }
-async function retryJob(id)   { await fetch(`/api/jobs/${id}/retry`,{method:'POST'}); await refreshJobs(); }
-
-async function refreshJobs() {
-  try {
-    const r = await fetch('/api/jobs');
-    if (!r.ok) return;
-    const d = await r.json();
-    lastJobs = d.jobs || [];
-    if (currentTab === 'queue') renderJobs(lastJobs);
-  } catch(e) { /* server not up yet */ }
-}
-
-// ══════════════════════════════════════════════════
-//  LIBRARY
-// ══════════════════════════════════════════════════
-async function loadLibrary(force=false) {
-  document.getElementById('lib-sections').innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading library…</div>';
-  try {
-    // When force-refreshing, clear the poster cache first so stale/wrong
-    // posters are re-fetched from TMDB on next render.
-    if (force) {
-      await fetch('/api/library/posters/clear', {method:'POST'}).catch(()=>{});
-    }
-    const r = await fetch('/api/library' + (force?'?force=true':''));
-    if (!r.ok) { renderLibEmpty('Could not load library.'); return; }
-    const d = await r.json();
-    libItems = d.items || [];
-    renderLibGrid();
-  } catch(e) {
-    renderLibEmpty('Server unreachable.');
-  }
-}
-
-let libTypeFilter2 = 'all';
-function setLibType(t, btn) {
-  libTypeFilter2 = t;
-  document.querySelectorAll('.lib-type-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderLibGrid();
-}
-
-function filterLib() { renderLibGrid(); }
-
-const LIB_SECTIONS = [
-  { type: 'movie', label: 'Movies',   icon: '🎬' },
-  { type: 'tv',    label: 'TV Shows', icon: '📺' },
-  { type: 'anime', label: 'Anime',    icon: '⛩️' },
-];
-
-function renderLibGrid() {
-  const query    = document.getElementById('lib-search').value.toLowerCase();
-  const showAll  = libTypeFilter2 === 'all';
-  const container = document.getElementById('lib-sections');
-
-  // Build the filtered set for the count badge
-  const allFiltered = libItems.filter(item => {
-    if (!showAll && item.type !== libTypeFilter2) return false;
-    if (query && !item.title.toLowerCase().includes(query)) return false;
-    return true;
-  });
-  document.getElementById('lib-count').textContent = `${allFiltered.length} item${allFiltered.length!==1?'s':''}`;
-
-  if (!allFiltered.length) {
-    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">No items found.</div>';
-    return;
-  }
-
-  if (showAll) {
-    // Render one section per type, each with its own header + grid
-    let html = '';
-    for (const sec of LIB_SECTIONS) {
-      const items = allFiltered.filter(i => i.type === sec.type);
-      if (!items.length) continue;
-      html += `<div class="lib-section">
-        <div class="lib-section-header">
-          <span class="lib-section-title">${sec.icon}&nbsp; ${sec.label}</span>
-          <span class="lib-section-count">${items.length}</span>
-        </div>
-        <div class="lib-grid">${items.map(renderLibCard).join('')}</div>
-      </div>`;
-    }
-    container.innerHTML = html;
-  } else {
-    // Single type selected — plain grid, no section header needed
-    container.innerHTML = `<div class="lib-grid">${allFiltered.map(renderLibCard).join('')}</div>`;
-  }
-}
-
-function renderLibEmpty(msg) {
-  document.getElementById('lib-sections').innerHTML = `<div style="text-align:center;padding:40px;color:var(--muted)">${msg}</div>`;
-}
-
-function libPosterSrc(item) {
-  if (item.poster) return `/api/library/poster?path=${encodeURIComponent(item.poster)}`;
-  if (item.folder) {
-    let u = `/api/library/poster/tmdb?title=${encodeURIComponent(item.title)}&folder=${encodeURIComponent(item.folder)}&type=${encodeURIComponent(item.type||'movie')}`;
-    if (item.year) u += `&year=${item.year}`;
-    return u;
-  }
-  return null;
-}
-
-function renderLibCard(item) {
-  const color = hashColor(item.title);
-  const icon  = TYPE_ICONS[item.type] || '📄';
-  const titleWords = item.title.split(' ').slice(0,4).join(' ');
-  let posterHTML;
-  const posterSrc = libPosterSrc(item);
-  if (posterSrc) {
-    posterHTML = `<img class="lib-poster" src="${posterSrc}" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\`<div class='lib-poster-placeholder' style='background:${color}'><span>${icon}</span><span class='pt'>${esc(titleWords)}</span></div>\`">`;
-  } else {
-    posterHTML = `<div class="lib-poster-placeholder" style="background:${color}"><span>${icon}</span><span class="pt">${esc(titleWords)}</span></div>`;
-  }
-  const storageBadge = {
-    new:     `<span class="storage-badge storage-new">NEW</span>`,
-    archive: `<span class="storage-badge storage-archive">WATCHED</span>`,
-    mixed:   `<span class="storage-badge storage-mixed">MIXED</span>`,
-  }[item.storage] || '';
-  return `<div class="lib-card" onclick='openMediaModal(${JSON.stringify(JSON.stringify(item))})'>
-    <div class="lib-poster-wrap">
-      ${posterHTML}
-      ${storageBadge}
-    </div>
-    <div class="lib-card-info">
-      <div class="lib-card-title">${esc(item.title)}</div>
-      <div class="lib-card-year">${item.year||''}</div>
-    </div>
-  </div>`;
-}
-
-
-// ── Media detail modal ──
-let _modalEpisodeData = null; // cached seasons for open show
-
-function openMediaModal(itemJson) {
-  const item = JSON.parse(itemJson);
-  selectedMedia = item;
-  _modalEpisodeData = null;
-  const color = hashColor(item.title);
-  const icon  = TYPE_ICONS[item.type] || '📄';
-
-  // Poster
-  const pw = document.getElementById('modal-poster-wrap');
-  const mPosterSrc = libPosterSrc(item);
-  if (mPosterSrc) {
-    pw.innerHTML = `<img src="${mPosterSrc}" alt="" style="width:100%;height:210px;object-fit:cover;display:block" onerror="this.parentNode.innerHTML='<div class=\\'modal-poster-ph\\' style=\\'background:${color}\\'>${icon}</div>'">`;
-  } else {
-    pw.innerHTML = `<div class="modal-poster-ph" style="background:${color}">${icon}</div>`;
-  }
-
-  document.getElementById('modal-title').textContent = item.title;
-  const storageLabel = {new:'On NVMe (new)', archive:'On SATA (watched)', mixed:'Split across drives'}[item.storage] || '';
-  document.getElementById('modal-meta').textContent  = [item.year, item.file_count > 1 ? item.file_count + ' files' : '', fmtSize(item.size_bytes), storageLabel].filter(Boolean).join(' · ');
-  document.getElementById('modal-tags').innerHTML    = `<span class="pill pill-type">${(item.type||'').toUpperCase()}</span>`;
-  document.getElementById('modal-path').textContent  = item.path;
-
-  // For TV/anime load episode list; movies just show path
-  const epEl = document.getElementById('modal-episodes');
-  if (item.type === 'tv' || item.type === 'anime') {
-    epEl.style.display = 'block';
-    epEl.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">Loading episodes…</div>';
-    document.getElementById('modal-play-btn').textContent = '▶ Play Next';
-    loadEpisodes(item);
-  } else {
-    epEl.style.display = 'none';
-    document.getElementById('modal-play-btn').textContent = '▶ Play in MPC-BE';
-  }
-
-  document.getElementById('media-modal').classList.add('show');
-}
-
-async function loadEpisodes(item) {
-  const epEl = document.getElementById('modal-episodes');
-  try {
-    let url = `/api/library/episodes?folder=${encodeURIComponent(item.folder)}`;
-    if (item.folder_archive) url += `&folder_archive=${encodeURIComponent(item.folder_archive)}`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error('API error');
-    const d = await r.json();
-    _modalEpisodeData = d.seasons;
-    renderEpisodes(d.seasons);
-  } catch(e) {
-    epEl.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">Could not load episodes.</div>';
-  }
-}
-
-function renderEpisodes(seasons) {
-  _episodeList = [];  // reset flat list every time
-  const epEl = document.getElementById('modal-episodes');
-  if (!seasons || !seasons.length) {
-    epEl.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">No episodes found.</div>';
-    return;
-  }
-  let html = '';
-  for (const {season, episodes} of seasons) {
-    html += `<div class="ep-season-header">Season ${season} <span style="font-weight:400;opacity:.6">(${episodes.length} ep)</span></div>`;
-    for (const ep of episodes) {
-      const idx = _episodeList.length;
-      _episodeList.push(ep);
-      const epLabel = ep.episode ? `S${String(season).padStart(2,'0')}E${String(ep.episode).padStart(2,'0')}` : `S${String(season).padStart(2,'0')}`;
-      const pct = ep.progress_pct || 0;
-      const done = pct >= 85;
-      const progHTML = done
-        ? `<span class="ep-done" title="Watched">✓</span>`
-        : pct > 0
-          ? `<div class="ep-bar"><div class="ep-bar-fill" style="width:${pct}%"></div></div><div class="ep-pct">${pct}%</div>`
-          : '';
-      const resumeTitle = pct > 0 && !done ? ` (resume ${fmtMs(ep.position_ms)})` : '';
-      html += `<div class="ep-row">
-        <button class="ep-play" onclick="playEpisode(${idx})" title="Play${resumeTitle}">▶</button>
-        <div class="ep-info">
-          <div class="ep-label">${esc(epLabel)}</div>
-          <div class="ep-title">${esc(ep.title || ep.filename)}</div>
-        </div>
-        <div class="ep-progress-wrap">${progHTML}</div>
-      </div>`;
-    }
-  }
-  epEl.innerHTML = html;
-}
-
-async function playEpisode(idx) {
-  const ep = _episodeList[idx];
-  if (!ep) return;
-  // Build a playlist from this episode onwards so MPC-BE autoplays the rest
-  const playlist = _episodeList.slice(idx).map(e => e.path);
-  await _openInMPC(ep.path, playlist);
-}
-
-function closeModal(e) { if (e.target === document.getElementById('media-modal')) closeModalDirect(); }
-function closeModalDirect() { document.getElementById('media-modal').classList.remove('show'); selectedMedia = null; _modalEpisodeData = null; }
-
-async function playInMPC() {
-  if (!selectedMedia) return;
-  let path = selectedMedia.path;
-  let playlist = null;
-  if (_modalEpisodeData && _modalEpisodeData.length) {
-    const allEps = _modalEpisodeData.flatMap(s => s.episodes);
-    // Find first unwatched episode, then queue everything from there onwards
-    const startIdx = allEps.findIndex(e => (e.progress_pct || 0) < 85);
-    if (startIdx >= 0) {
-      path = allEps[startIdx].path;
-      playlist = allEps.slice(startIdx).map(e => e.path);
-    }
-  }
-  await _openInMPC(path, playlist);
-}
-
-async function _openInMPC(path, playlist = null) {
-  let resp;
-  try {
-    resp = await fetch('/api/mpc/open', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({path, playlist})
-    });
-  } catch(e) {
-    alert('Could not reach the server.');
-    return;
-  }
-  if (!resp.ok) {
-    const d = await resp.json().catch(() => ({}));
-    alert(d.detail || 'Failed to open file in MPC-BE.');
-    return;
-  }
-  const d = await resp.json();
-  if (d.ok) {
-    closeModalDirect();
-    const switchToNP = () => document.querySelectorAll('.tab-btn').forEach(b => { if (b.textContent.includes('Now Playing')) b.click(); });
-    if (d.launched) {
-      // MPC-BE just started — suppress the "unreachable" error while it loads
-      _mpcLaunching = true;
-      switchToNP();
-      // Clear the launching flag and do a real refresh after ~6 s
-      setTimeout(() => { _mpcLaunching = false; refreshNP(); }, 6000);
-    } else {
-      switchToNP();
-      // MPC-BE was already running — give it a moment to load the new file
-      setTimeout(refreshNP, 1200);
-    }
-  } else {
-    alert('MPC-BE could not open the file. Check that its web interface is enabled on port 13579.');
-  }
-}
-
-// ══════════════════════════════════════════════════
-//  NOW PLAYING
-// ══════════════════════════════════════════════════
-function startNPPoll() { if (!npPollTimer) npPollTimer = setInterval(refreshNP, 2000); }
-function stopNPPoll()  { clearInterval(npPollTimer); npPollTimer = null; }
-
-async function refreshNP() {
-  try {
-    const r = await fetch('/api/mpc/status');
-    if (!r.ok) {
-      if (_mpcLaunching) { showNPStarting(); return; }
-      showNPError('Could not reach MPC-BE.'); return;
-    }
-    npStatus = await r.json();
-    _mpcLaunching = false;  // connected — clear the launching flag
-    renderNP(npStatus);
-  } catch(e) {
-    if (_mpcLaunching) { showNPStarting(); return; }
-    showNPError('MPC-BE unreachable — make sure it is running with web interface enabled.');
-  }
-}
-
-function showNPStarting() {
-  document.getElementById('np-error').style.display = 'none';
-  document.getElementById('np-player').style.display = 'none';
-  document.getElementById('np-idle').style.display = 'block';
-  document.getElementById('np-idle').innerHTML = '<div class="ni">⏳</div><h3>Starting MPC-BE…</h3><p>The player is loading, please wait.</p>';
-}
-
-const _NP_IDLE_HTML = '<div class="ni">🎬</div><h3>Nothing playing</h3><p>Start something in MPC-BE or pick a file from the Library tab.</p>';
-
-function renderNP(s) {
-  document.getElementById('np-error').style.display = 'none';
-  if (!s || !s.file) {
-    const idle = document.getElementById('np-idle');
-    idle.innerHTML = _NP_IDLE_HTML;  // restore if it was showing "Starting…"
-    idle.style.display = 'block';
-    document.getElementById('np-player').style.display = 'none';
-    return;
-  }
-  document.getElementById('np-idle').style.display   = 'none';
-  document.getElementById('np-player').style.display = 'block';
-
-  document.getElementById('np-title').textContent = s.filename || s.file.split('\\').pop().split('/').pop();
-  document.getElementById('np-file').textContent  = s.file;
-  document.getElementById('np-playpause').textContent = s.is_playing ? '⏸' : '▶';
-
-  const pct = s.duration_ms > 0 ? (s.position_ms / s.duration_ms * 100).toFixed(2) : 0;
-  document.getElementById('np-fill').style.width = pct + '%';
-  document.getElementById('np-pos').textContent  = s.position_str || fmtMs(s.position_ms);
-  document.getElementById('np-dur').textContent  = s.duration_str || fmtMs(s.duration_ms);
-
-  if (!volDragging) {
-    document.getElementById('vol-slider').value = s.volume;
-    document.getElementById('vol-pct').textContent = s.volume + '%';
-  }
-  document.getElementById('mute-icon').textContent = s.muted ? '🔇' : s.volume < 30 ? '🔈' : '🔊';
-}
-
-function showNPError(msg) {
-  const el = document.getElementById('np-error');
-  el.textContent = msg; el.style.display = 'block';
-}
-
-async function mpcCmd(cmd, extra) {
-  const body = {command: cmd};
-  if (extra) Object.assign(body, extra);
-  try {
-    await fetch('/api/mpc/command', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    setTimeout(refreshNP, 400);
-  } catch(e){}
-}
-
-async function mpcPlayPause() { await mpcCmd(887); }
-
-async function mpcSeekRel(deltaMs) {
-  if (!npStatus || !npStatus.duration_ms) return;
-  const newPos = Math.max(0, Math.min(npStatus.duration_ms, npStatus.position_ms + deltaMs));
-  await fetch('/api/mpc/command', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({command: 889, position_ms: newPos})});
-  setTimeout(refreshNP, 400);
-}
-
-// Seek on progress bar click
-document.getElementById('np-seek').addEventListener('click', async (e) => {
-  if (!npStatus || !npStatus.duration_ms) return;
-  const rect = e.currentTarget.getBoundingClientRect();
-  const frac = (e.clientX - rect.left) / rect.width;
-  const pos  = Math.round(frac * npStatus.duration_ms);
-  await fetch('/api/mpc/command', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({command: 889, position_ms: pos})});
-  setTimeout(refreshNP, 400);
-});
-
-function onVolSlider(val) {
-  volDragging = true;
-  document.getElementById('vol-pct').textContent = val + '%';
-}
-async function setVolume(val) {
-  // MPC-BE doesn't have a direct set-volume command in the standard API,
-  // so we send volume-up or volume-down commands to approximate it.
-  // This adjusts in 5% steps — the slider will snap to the nearest 5.
-  const current = npStatus ? npStatus.volume : 100;
-  const target  = parseInt(val);
-  const diff    = target - current;
-  const steps   = Math.round(Math.abs(diff) / 5);
-  const cmd     = diff > 0 ? 907 : 908;
-  for (let i = 0; i < steps; i++) await mpcCmd(cmd);
-  volDragging = false;
-  setTimeout(refreshNP, 600);
-}
-
-// ══════════════════════════════════════════════════
-//  SETTINGS
-// ══════════════════════════════════════════════════
-
-const SETTINGS_KEYS = [
-  'TMDB_API_KEY','REAL_DEBRID_API_KEY','SECRET_KEY',
-  'MOVIES_DIR','TV_DIR','ANIME_DIR',
-  'MOVIES_DIR_ARCHIVE','TV_DIR_ARCHIVE','ANIME_DIR_ARCHIVE',
-  'DOWNLOADS_DIR','POSTERS_DIR',
-  'MPC_BE_EXE','WATCH_THRESHOLD','PORT',
-];
-
-async function loadSettingsForm() {
-  try {
-    const r = await fetch('/api/settings');
-    if (!r.ok) return;
-    const d = await r.json();
-    for (const key of SETTINGS_KEYS) {
-      const el = document.getElementById('cfg-' + key);
-      if (el && d[key] !== undefined) el.value = d[key];
-    }
-  } catch(e) {}
-}
-
-async function saveSettings() {
-  const updates = {};
-  for (const key of SETTINGS_KEYS) {
-    const el = document.getElementById('cfg-' + key);
-    if (el) updates[key] = el.value;
-  }
-  const toast = document.getElementById('settings-save-toast');
-  try {
-    const r = await fetch('/api/settings', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({updates})
-    });
-    const d = await r.json();
-    if (r.ok) {
-      toast.textContent = '✓ Saved — restart the server for changes to take effect';
-      toast.style.display = 'inline';
-      setTimeout(() => toast.style.display = 'none', 5000);
-    } else {
-      toast.textContent = '✗ Error: ' + (d.detail || JSON.stringify(d));
-      toast.style.color = 'var(--error)';
-      toast.style.display = 'inline';
-      setTimeout(() => { toast.style.display = 'none'; toast.style.color = 'var(--success)'; }, 6000);
-    }
-  } catch(e) {
-    toast.textContent = '✗ Network error: ' + e.message;
-    toast.style.color = 'var(--error)';
-    toast.style.display = 'inline';
-    setTimeout(() => { toast.style.display = 'none'; toast.style.color = 'var(--success)'; }, 6000);
-  }
-}
-
-let _logAutoRefresh = null;
-
-async function loadLogs() {
-  const viewer = document.getElementById('log-viewer');
-  const autoscroll = document.getElementById('log-autoscroll').checked;
-  try {
-    const r = await fetch('/api/logs?lines=300');
-    if (!r.ok) { viewer.textContent = 'Could not load logs.'; return; }
-    const d = await r.json();
-    const text = (d.lines || []).join('\n');
-    viewer.textContent = text || '(No log entries yet)';
-    if (autoscroll) viewer.scrollTop = viewer.scrollHeight;
-  } catch(e) {
-    viewer.textContent = 'Server unreachable.';
-  }
-}
-
-async function confirmStopServer() {
-  if (!confirm('Stop the server? The UI will stop working until the server is restarted.')) return;
-  try {
-    const r = await fetch('/api/shutdown', {method:'POST'});
-    const d = await r.json();
-    alert(d.message || 'Server stopping…');
-  } catch(e) {
-    // Server may have already closed the connection — that's expected
-    alert('Server stopping…');
-  }
-}
-
-function showUninstallHelp() {
-  const el = document.getElementById('uninstall-help');
-  el.style.display = el.style.display === 'none' ? 'block' : 'none';
-}
-
-// ══════════════════════════════════════════════════
-//  Server status
-// ══════════════════════════════════════════════════
-async function checkServer() {
-  try {
-    const r = await fetch('/api/status');
-    const dot = document.getElementById('server-dot');
-    if (r.ok) { dot.className = 'server-dot online'; }
-    else       { dot.className = 'server-dot error'; }
-  } catch(e) {
-    document.getElementById('server-dot').className = 'server-dot error';
-  }
-}
-
-// ══════════════════════════════════════════════════
-//  Init & polling
-// ══════════════════════════════════════════════════
-checkServer();
-refreshJobs();
-// Start background MPC-BE poll immediately so NP state is cached before the user
-// switches to the Now Playing tab (avoids showing "Nothing playing" on first open).
-npBgTimer = setInterval(refreshNP, 5000);
-refreshNP();
-setInterval(refreshJobs, 3000);
-setInterval(checkServer, 30000);
-</script>
 </body>
 </html>

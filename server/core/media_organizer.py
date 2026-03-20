@@ -25,9 +25,9 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from .config import settings
+from ..config import settings
 from .quality_scorer import ScoredStream
-from .tmdb_client import MediaInfo
+from ..clients.tmdb_client import MediaInfo
 
 logger = logging.getLogger(__name__)
 

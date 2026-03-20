@@ -1,10 +1,13 @@
 @echo off
 setlocal
 title Media Downloader -- Setup
-set SCRIPT_DIR=%~dp0
+
+:: This script lives in scripts\ — resolve the project root one level up
+for %%I in ("%~dp0..") do set ROOT_DIR=%%~fI\
+set SCRIPT_DIR=%ROOT_DIR%
 
 :: Strip trailing backslash for use in PowerShell strings
-set WD=%SCRIPT_DIR%
+set WD=%ROOT_DIR%
 if "%WD:~-1%"=="\" set WD=%WD:~0,-1%
 
 echo.

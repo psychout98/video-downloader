@@ -29,8 +29,8 @@ import time
 from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
-from .config import settings
-from .mpc_client import MPCClient
+from ..config import settings
+from ..clients.mpc_client import MPCClient
 
 if TYPE_CHECKING:
     from .progress_store import ProgressStore

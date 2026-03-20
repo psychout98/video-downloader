@@ -21,7 +21,7 @@ from xml.etree import ElementTree as ET
 
 import httpx
 
-from .quality_scorer import ScoredStream
+from ..core.quality_scorer import ScoredStream
 from .tmdb_client import MediaInfo
 
 logger = logging.getLogger(__name__)

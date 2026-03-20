@@ -11,9 +11,24 @@ Each item has a 'storage' field:
 
 TV shows that share a title across both drives are merged into a single card
 with combined episode/size counts.
+
+Title overrides
+---------------
+``data/title_overrides.json`` maps the display title (as the scanner parses it
+from the filename) to a corrected TMDB lookup title/year.  Example entry::
+
+    "Thor Love and Thunder": { "title": "Thor: Love and Thunder", "year": 2022 }
+
+A plain string value is also accepted::
+
+    "Dont Look Up": "Don't Look Up"
+
+When an override is found the item gains ``tmdb_title`` / ``tmdb_year`` fields
+which the frontend uses instead of ``title`` / ``year`` for poster lookups.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -71,7 +86,7 @@ def _find_poster(directory: Path, title_key: Optional[str] = None) -> Optional[s
       2. ``directory.name`` — works for content already in a per-title subfolder.
     Falls back to legacy posters still living inside the media folder.
     """
-    from .config import settings  # local import to avoid circular at module load
+    from ..config import settings  # local import to avoid circular at module load
 
     posters_dir = Path(settings.POSTERS_DIR)
 
@@ -221,6 +236,37 @@ def _merge_entries(primary: list[dict], archive: list[dict], media_type: str) ->
     return list(by_title.values())
 
 
+# --- Title overrides --------------------------------------------------
+
+_OVERRIDES_FILE = Path(__file__).parent.parent.parent / "data" / "title_overrides.json"
+
+
+def _load_overrides() -> dict:
+    """Load data/title_overrides.json, ignoring keys that start with '_'."""
+    if not _OVERRIDES_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(_OVERRIDES_FILE.read_text(encoding="utf-8"))
+        return {k: v for k, v in raw.items() if not k.startswith("_")}
+    except Exception as exc:
+        logger.warning("Could not load title_overrides.json: %s", exc)
+        return {}
+
+
+def _apply_override(item: dict, overrides: dict) -> None:
+    """Stamp tmdb_title / tmdb_year onto *item* if a matching override exists."""
+    entry = overrides.get(item["title"])
+    if entry is None:
+        return
+    if isinstance(entry, str):
+        item["tmdb_title"] = entry
+    elif isinstance(entry, dict):
+        if "title" in entry:
+            item["tmdb_title"] = entry["title"]
+        if "year" in entry:
+            item["tmdb_year"] = entry["year"]
+
+
 # --- Public API -------------------------------------------------------
 
 class LibraryScanner:
@@ -248,6 +294,8 @@ class LibraryScanner:
         if not force and (time.time() - self._cache_time) < self._ttl:
             return self._cache
 
+        overrides = _load_overrides()
+
         results: list[dict] = []
         for primary_dir, archive_dir, media_type in self._dirs:
             primary_items = scan_directory(primary_dir, media_type, "new")
@@ -255,9 +303,17 @@ class LibraryScanner:
             merged = _merge_entries(primary_items, archive_items, media_type)
             results.extend(merged)
 
+        # Stamp tmdb_title / tmdb_year where an override exists
+        for item in results:
+            _apply_override(item, overrides)
+
         results.sort(key=lambda x: x.get("modified_at", 0), reverse=True)
 
         self._cache = results
         self._cache_time = time.time()
-        logger.info("Library scan: %d items", len(results))
+        loaded = len(overrides)
+        logger.info(
+            "Library scan: %d items (%d title override%s active)",
+            len(results), loaded, "s" if loaded != 1 else "",
+        )
         return results

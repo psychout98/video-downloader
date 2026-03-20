@@ -30,8 +30,8 @@ from typing import Optional
 import aiofiles
 import httpx
 
-from .config import settings
-from .database import (
+from ..config import settings
+from ..database import (
     JobStatus,
     append_log,
     get_job,
@@ -39,11 +39,11 @@ from .database import (
     update_job,
 )
 from .media_organizer import MediaOrganizer
-from .nyaa_client import NyaaClient
+from ..clients.nyaa_client import NyaaClient
 from .quality_scorer import QualityScorer, ScoredStream
-from .realdebrid_client import RealDebridClient, RealDebridError
-from .tmdb_client import MediaInfo, TMDBClient
-from .torrentio_client import TorrentioClient
+from ..clients.realdebrid_client import RealDebridClient, RealDebridError
+from ..clients.tmdb_client import MediaInfo, TMDBClient
+from ..clients.torrentio_client import TorrentioClient
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,7 @@ REM    3. Download MediaDownloader-Setup.exe from the Artifacts section
 REM
 REM  Output:  MediaDownloader-Setup.exe  (in this folder)
 REM ─────────────────────────────────────────────────────────────────
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 REM Install PyInstaller if not already present
 python -m pip install pyinstaller --upgrade --quiet
