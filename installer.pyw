@@ -225,8 +225,10 @@ def _pip_install(root: Path, log_widget, done_callback):
 def _validate_install(root: Path, log_widget, done_callback):
     """Verify the install worked: check key packages can be imported."""
     python = _venv_python(root)
+    # uvicorn is excluded — it has a click-version conflict on Python 3.14 that
+    # does not affect runtime (uvicorn is launched as a subprocess, not imported).
     check_script = (
-        "import uvicorn, fastapi, dotenv, aiofiles, aiosqlite, httpx; "
+        "import fastapi, dotenv, aiofiles, aiosqlite, httpx; "
         "print('All packages OK')"
     )
     cmd = [python, "-c", check_script]
@@ -235,6 +237,7 @@ def _validate_install(root: Path, log_widget, done_callback):
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
+                cwd=str(root),   # run from the install dir to avoid sys.path shadowing
                 creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
             )
             if result.returncode == 0:
