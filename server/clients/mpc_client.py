@@ -132,10 +132,6 @@ class MPCClient:
                 r = await c.get(f"{self._base}/variables.html")
                 r.raise_for_status()
                 parsed = self._parse_variables(r.text)
-                logger.info("MPC-BE raw response (first 500 chars): %s", r.text[:500])
-                logger.info("MPC-BE parsed keys: %s", list(parsed.keys()))
-                logger.info("MPC-BE parsed file/filepath: file=%r filepath=%r",
-                            parsed.get("file"), parsed.get("filepath"))
                 return MPCStatus(parsed, reachable=True)
         except Exception as exc:
             logger.debug("MPC-BE unreachable at %s: %s", self._base, exc)
@@ -216,10 +212,19 @@ class MPCClient:
             except Exception:
                 pass
 
-        # Legacy format: OnVariable("key","value");
+        # Legacy JS format: OnVariable("key","value");
         result: dict = {}
         for m in re.finditer(r'OnVariable\("([^"]+)","([^"]*)"\)', text):
-            key, val = m.group(1), m.group(2)
+            result[m.group(1)] = m.group(2)
+        if result:
+            return result
+
+        # HTML format: <p id="key">value</p>  (current MPC-BE default)
+        for m in re.finditer(r'<p\s+id="([^"]+)">([^<]*)</p>', text):
+            key, val = m.group(1), m.group(2).strip()
+            # filepatharg is URL-encoded; also expose it as "filepath"
+            if key == "filepatharg":
+                result["filepath"] = urllib.parse.unquote(val)
             result[key] = val
         return result
 
