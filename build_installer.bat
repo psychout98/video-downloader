@@ -24,7 +24,6 @@ pyinstaller ^
     --name "MediaDownloader-Setup" ^
     --distpath . ^
     --workpath build\_pyinstaller ^
-    --specpath build ^
     --add-data "server;server" ^
     --add-data "run_server.bat;." ^
     --add-data "stop_server.bat;." ^
