@@ -131,7 +131,12 @@ class MPCClient:
             async with httpx.AsyncClient(timeout=3) as c:
                 r = await c.get(f"{self._base}/variables.html")
                 r.raise_for_status()
-                return MPCStatus(self._parse_variables(r.text), reachable=True)
+                parsed = self._parse_variables(r.text)
+                logger.info("MPC-BE raw response (first 500 chars): %s", r.text[:500])
+                logger.info("MPC-BE parsed keys: %s", list(parsed.keys()))
+                logger.info("MPC-BE parsed file/filepath: file=%r filepath=%r",
+                            parsed.get("file"), parsed.get("filepath"))
+                return MPCStatus(parsed, reachable=True)
         except Exception as exc:
             logger.debug("MPC-BE unreachable at %s: %s", self._base, exc)
             return MPCStatus({}, reachable=False)
