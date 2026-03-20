@@ -541,17 +541,22 @@ class InstallerApp(tk.Tk):
                   "for your system.", muted=True)
 
         # ── Uninstall section (shown when an existing install is detected) ──
-        self._uninstall_frame = tk.Frame(p, bg=SURFACE2,
+        # A zero-height placeholder always occupies this position in the layout.
+        # The visible card is packed/forgotten inside it so repacking never
+        # moves it to the bottom of the page.
+        _uninstall_slot = tk.Frame(p, bg=BG)
+        _uninstall_slot.pack(fill="x", pady=(8, 0))
+
+        self._uninstall_frame = tk.Frame(_uninstall_slot, bg=SURFACE2,
                                          highlightthickness=1,
                                          highlightbackground=BORDER)
-        self._uninstall_frame.pack(fill="x", pady=(8, 0))
+        # (not packed yet — shown by _refresh_uninstall_section)
 
         uninstall_left = tk.Frame(self._uninstall_frame, bg=SURFACE2)
         uninstall_left.pack(side="left", fill="x", expand=True, padx=12, pady=8)
-        self._uninstall_detect_lbl = tk.Label(
-            uninstall_left, bg=SURFACE2, fg=SUCCESS, font=FONT_LABEL,
-            text="✓ Existing installation detected at this location.")
-        self._uninstall_detect_lbl.pack(anchor="w")
+        tk.Label(uninstall_left, bg=SURFACE2, fg=SUCCESS, font=FONT_LABEL,
+                 text="✓ Existing installation detected at this location."
+                 ).pack(anchor="w")
         tk.Label(uninstall_left, bg=SURFACE2, fg=MUTED, font=FONT_LABEL,
                  text="Stops the server, removes the task, and deletes the install folder. "
                       "Media files are not touched."
@@ -565,9 +570,6 @@ class InstallerApp(tk.Tk):
             cursor="hand2", padx=14, pady=6,
             command=self._do_uninstall)
         self._uninstall_btn.pack(side="right", padx=12, pady=8)
-
-        # Hide until detection confirms an install exists
-        self._uninstall_frame.pack_forget()
 
         # Re-check whenever the install path changes
         self.install_var.trace_add("write", lambda *_: self._refresh_uninstall_section())
@@ -630,10 +632,10 @@ class InstallerApp(tk.Tk):
         return (dest / "run_server.bat").exists() and (dest / ".venv").exists()
 
     def _refresh_uninstall_section(self):
-        """Show or hide the uninstall section based on whether an install is detected."""
+        """Show or hide the uninstall card inside its placeholder slot."""
         try:
             if self._is_installed():
-                self._uninstall_frame.pack(fill="x", pady=(8, 0))
+                self._uninstall_frame.pack(fill="x")
             else:
                 self._uninstall_frame.pack_forget()
         except Exception:
