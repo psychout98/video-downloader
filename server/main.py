@@ -13,6 +13,7 @@ GET  /api/status                  Server health + config summary
 
 GET  /api/library                 Scan media library, return card list
 GET  /api/library/poster          Serve a poster image file
+POST /api/library/posters/clear   Delete all cached posters and force rescan
 
 GET  /api/mpc/status              MPC-BE player state
 POST /api/mpc/command             Send a command to MPC-BE
@@ -426,6 +427,34 @@ async def get_poster(path: str):
 _POSTER_NAMES = ("poster.jpg", "poster.png", "movie.jpg", "folder.jpg", "thumb.jpg", "cover.jpg")
 
 
+@app.post("/api/library/posters/clear")
+async def clear_poster_cache():
+    """Delete all cached poster images so they are re-fetched from TMDB on
+    next library load.  Also forces an immediate library rescan so the UI
+    gets fresh data (without stale poster paths) right away."""
+    import shutil as _shutil
+
+    posters_dir = Path(settings.POSTERS_DIR)
+    deleted = 0
+    errors: list[str] = []
+    if posters_dir.exists():
+        for f in posters_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in (".jpg", ".png", ".jpeg", ".webp"):
+                try:
+                    f.unlink()
+                    deleted += 1
+                except Exception as exc:
+                    errors.append(str(exc))
+
+    # Force library rescan so poster fields return None and the UI re-requests
+    # them from TMDB.
+    if _library:
+        _library.scan(force=True)
+
+    logger.info("Poster cache cleared: %d files deleted", deleted)
+    return {"ok": True, "deleted": deleted, "errors": errors}
+
+
 @app.get("/api/library/poster/tmdb")
 async def get_poster_tmdb(
     title: str,
@@ -676,7 +705,6 @@ async def mpc_command(body: MPCCommandRequest):
 
 @app.post("/api/mpc/open")
 async def mpc_open(body: MPCOpenRequest):
-    import asyncio
     import subprocess
 
     # Build a .m3u playlist when multiple files are provided so MPC-BE
@@ -694,34 +722,30 @@ async def mpc_open(body: MPCOpenRequest):
     else:
         open_path = files[0]
 
-    # Check whether MPC-BE is already running
-    mpc_running = await _mpc.ping()
+    exe = settings.MPC_BE_EXE
+    if not Path(exe).exists():
+        raise HTTPException(
+            status_code=500,
+            detail=f"MPC-BE executable not found at '{exe}'. Set MPC_BE_EXE in your .env file.",
+        )
 
-    if not mpc_running:
-        # Launch MPC-BE with the file/playlist path — it opens and starts
-        # playing automatically without needing any further commands.
-        exe = settings.MPC_BE_EXE
-        if not Path(exe).exists():
-            raise HTTPException(
-                status_code=500,
-                detail=f"MPC-BE executable not found at '{exe}'. Set MPC_BE_EXE in your .env file.",
-            )
-        try:
-            subprocess.Popen(
-                [exe, open_path],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-            )
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to launch MPC-BE: {exc}")
-        return {"ok": True, "launched": True}
+    # Check whether MPC-BE is already running so the UI knows whether to wait
+    # for launch.  We always use subprocess.Popen regardless — when MPC-BE is
+    # configured in single-instance mode (the default), launching it a second
+    # time with a path causes the existing instance to open that file.  This is
+    # far more reliable than the /command.html web API which returns HTTP 200
+    # even when the command is silently ignored.
+    was_running = await _mpc.ping()
 
-    # MPC-BE is already open — send the open-file command, wait briefly for
-    # it to load, then send an explicit Play command.
-    ok = await _mpc.open_file(open_path)
-    if ok:
-        await asyncio.sleep(1.0)
-        await _mpc.play()
-    return {"ok": ok, "launched": False}
+    try:
+        subprocess.Popen(
+            [exe, open_path],
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to launch MPC-BE: {exc}")
+
+    return {"ok": True, "launched": not was_running}
 
 
 # ---------------------------------------------------------------------------

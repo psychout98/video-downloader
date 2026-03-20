@@ -315,7 +315,7 @@ input[type=range].vol-slider::-moz-range-thumb{width:14px;height:14px;background
         <button class="lib-type-btn"        onclick="setLibType('anime',this)">Anime</button>
       </div>
       <span id="lib-count" class="lib-count"></span>
-      <button class="btn-ghost" style="margin-left:auto" onclick="loadLibrary(true)">↺ Refresh</button>
+      <button class="btn-ghost" style="margin-left:auto" onclick="loadLibrary(true)" title="Refresh library and re-fetch all posters from TMDB">↺ Refresh Posters</button>
     </div>
     <div id="lib-sections"></div>
   </div>
@@ -515,6 +515,7 @@ let _episodeList    = [];     // flat episode array for current modal (indexed b
 let npStatus        = null;   // latest MPC-BE status
 let npPollTimer     = null;   // fast poll (2 s) when NP tab is active
 let npBgTimer       = null;   // slow background poll (5 s) on all other tabs
+let _mpcLaunching   = false;  // true while MPC-BE is starting up (suppress error flash)
 let volDragging     = false;
 
 // ══════════════════════════════════════════════════
@@ -788,6 +789,11 @@ async function refreshJobs() {
 async function loadLibrary(force=false) {
   document.getElementById('lib-sections').innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)">Loading library…</div>';
   try {
+    // When force-refreshing, clear the poster cache first so stale/wrong
+    // posters are re-fetched from TMDB on next render.
+    if (force) {
+      await fetch('/api/library/posters/clear', {method:'POST'}).catch(()=>{});
+    }
     const r = await fetch('/api/library' + (force?'?force=true':''));
     if (!r.ok) { renderLibEmpty('Could not load library.'); return; }
     const d = await r.json();
@@ -1034,12 +1040,15 @@ async function _openInMPC(path, playlist = null) {
     closeModalDirect();
     const switchToNP = () => document.querySelectorAll('.tab-btn').forEach(b => { if (b.textContent.includes('Now Playing')) b.click(); });
     if (d.launched) {
-      // MPC-BE just started — give it a few seconds to load before switching
-      // to the Now Playing tab (avoids "unreachable" flash on first poll)
+      // MPC-BE just started — suppress the "unreachable" error while it loads
+      _mpcLaunching = true;
       switchToNP();
-      setTimeout(refreshNP, 4000);
+      // Clear the launching flag and do a real refresh after ~6 s
+      setTimeout(() => { _mpcLaunching = false; refreshNP(); }, 6000);
     } else {
       switchToNP();
+      // MPC-BE was already running — give it a moment to load the new file
+      setTimeout(refreshNP, 1200);
     }
   } else {
     alert('MPC-BE could not open the file. Check that its web interface is enabled on port 13579.');
@@ -1055,18 +1064,34 @@ function stopNPPoll()  { clearInterval(npPollTimer); npPollTimer = null; }
 async function refreshNP() {
   try {
     const r = await fetch('/api/mpc/status');
-    if (!r.ok) { showNPError('Could not reach MPC-BE.'); return; }
+    if (!r.ok) {
+      if (_mpcLaunching) { showNPStarting(); return; }
+      showNPError('Could not reach MPC-BE.'); return;
+    }
     npStatus = await r.json();
+    _mpcLaunching = false;  // connected — clear the launching flag
     renderNP(npStatus);
   } catch(e) {
+    if (_mpcLaunching) { showNPStarting(); return; }
     showNPError('MPC-BE unreachable — make sure it is running with web interface enabled.');
   }
 }
 
+function showNPStarting() {
+  document.getElementById('np-error').style.display = 'none';
+  document.getElementById('np-player').style.display = 'none';
+  document.getElementById('np-idle').style.display = 'block';
+  document.getElementById('np-idle').innerHTML = '<div class="ni">⏳</div><h3>Starting MPC-BE…</h3><p>The player is loading, please wait.</p>';
+}
+
+const _NP_IDLE_HTML = '<div class="ni">🎬</div><h3>Nothing playing</h3><p>Start something in MPC-BE or pick a file from the Library tab.</p>';
+
 function renderNP(s) {
   document.getElementById('np-error').style.display = 'none';
   if (!s || !s.file) {
-    document.getElementById('np-idle').style.display = 'block';
+    const idle = document.getElementById('np-idle');
+    idle.innerHTML = _NP_IDLE_HTML;  // restore if it was showing "Starting…"
+    idle.style.display = 'block';
     document.getElementById('np-player').style.display = 'none';
     return;
   }
