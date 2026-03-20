@@ -71,9 +71,12 @@
         <button class="lib-type-btn"        onclick="setLibType('anime',this)">Anime</button>
       </div>
       <span id="lib-count" class="lib-count"></span>
-      <button class="btn-ghost" style="margin-left:auto"
-              onclick="loadLibrary(true)"
-              title="Refresh library and re-fetch all posters from TMDB">↺ Refresh Posters</button>
+      <div style="margin-left:auto;display:flex;gap:8px">
+        <button class="btn-ghost" onclick="previewNormalize()"
+                title="Rename folders to canonical Title (Year) form using TMDB">⟳ Normalize Folders</button>
+        <button class="btn-ghost" onclick="loadLibrary(true)"
+                title="Refresh library and re-fetch all posters from TMDB">↺ Refresh Posters</button>
+      </div>
     </div>
     <div id="lib-sections"></div>
   </div>
@@ -237,6 +240,27 @@
   </div><!-- /pane-settings -->
 
 </div><!-- /panes -->
+
+<!-- ── Normalize folders modal ── -->
+<div id="normalize-modal" class="modal-bg" onclick="closeNormalizeModal(event)">
+  <div class="modal modal-wrap" style="max-width:600px;width:92%">
+    <button class="modal-close" onclick="closeNormalizeModal()">✕</button>
+    <div style="padding:4px 0 16px">
+      <div class="modal-title" style="font-size:16px">⟳ Normalize Folder Names</div>
+      <p style="font-size:13px;color:var(--muted);margin:6px 0 0">
+        Renames library folders to canonical <code>Title (Year)</code> form using TMDB.
+        Video files inside are never touched.
+      </p>
+    </div>
+    <div id="normalize-body" style="font-size:13px;max-height:52vh;overflow-y:auto"></div>
+    <div class="modal-actions" style="margin-top:16px" id="normalize-actions">
+      <button class="btn" id="normalize-apply-btn" onclick="applyNormalize()" style="display:none">
+        Apply Renames
+      </button>
+      <button class="btn-ghost" onclick="closeNormalizeModal()">Close</button>
+    </div>
+  </div>
+</div>
 
 <!-- ── Media detail modal ── -->
 <div id="media-modal" class="modal-bg" onclick="closeModal(event)">

@@ -5,6 +5,7 @@ GET  /api/library                   Scan library, return card list
 GET  /api/library/poster            Serve a cached poster image file
 POST /api/library/posters/clear     Delete all cached posters and force rescan
 GET  /api/library/poster/tmdb       Fetch poster from TMDB, cache, and serve it
+POST /api/library/normalize         Rename folders to canonical 'Title (Year)' form
 GET  /api/library/episodes          List episodes for a TV/anime show
 GET  /api/progress                  Get watch progress for a file
 POST /api/progress                  Save watch progress for a file
@@ -16,12 +17,15 @@ import re
 from pathlib import Path
 from typing import Optional
 
+import httpx
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from .. import state
 from ..config import settings
+from ..core.library_scanner import _extract_title_year
 
 router = APIRouter(prefix="/api", tags=["library"])
 logger = logging.getLogger(__name__)
@@ -96,20 +100,16 @@ async def get_poster_tmdb(
     year:   Optional[int] = None,
     type:   str = "movie",
 ):
-    """Look up a poster on TMDB, cache it to POSTERS_DIR, and serve it.
+    """Look up a poster on TMDB using fuzzy resolution, cache it, and serve it.
 
-    Uses ``/search/movie`` for movies and ``/search/tv`` for TV/anime so the
-    correct result type is always returned.  Filters by year when available.
-    If a matching poster is already cached it is served immediately.
+    Resolution is delegated to ``TMDBClient.fuzzy_resolve()`` which tries
+    type-specific search (with year → without) then TMDB multi-search then
+    progressive title truncation, so messy filenames still find a result.
+    The poster is cached under the *canonical* TMDB title so subsequent loads
+    are instant even when the original filename was imprecise.
     """
-    import httpx as _httpx
-
     folder_path = Path(folder)
     posters_dir = Path(settings.POSTERS_DIR)
-
-    # Canonical poster key: "Title (Year)" or just "Title"
-    poster_key  = f"{title} ({year})" if year else title
-    folder_name = folder_path.name
 
     def _check_cached(key: str) -> Optional[Path]:
         safe = _safe(key)
@@ -119,91 +119,174 @@ async def get_poster_tmdb(
                 return p
         return None
 
-    # 1. Check central poster cache — title key first, then folder-name key
-    hit = _check_cached(poster_key)
-    if hit:
-        return FileResponse(str(hit))
-    if folder_name != poster_key:
-        hit = _check_cached(folder_name)
+    # 1. Check cache — input key first, then bare folder name
+    input_key   = f"{title} ({year})" if year else title
+    folder_name = folder_path.name
+    for key in (input_key, folder_name):
+        hit = _check_cached(key)
         if hit:
             return FileResponse(str(hit))
 
-    # 2. Legacy fallback: poster stored inside the media folder itself
+    # 2. Legacy: poster.jpg / folder.jpg stored inside the media folder
     for name in _POSTER_NAMES:
         p = folder_path / name
         if p.exists() and p.is_file():
             return FileResponse(str(p))
 
-    # 3. Fetch from TMDB
-    tmdb_base     = "https://api.themoviedb.org/3"
-    default_params = {"api_key": settings.TMDB_API_KEY}
+    # 3. Resolve via TMDB using the shared authenticated client
+    if not state.tmdb:
+        raise HTTPException(status_code=503, detail="TMDB client not initialised")
 
     try:
-        async with _httpx.AsyncClient(
-            base_url=tmdb_base, params=default_params, timeout=15
-        ) as client:
-            is_tv    = type in ("tv", "anime")
-            endpoint = "/search/tv" if is_tv else "/search/movie"
-            params: dict = {"query": title, "include_adult": False}
-            if year:
-                params["first_air_date_year" if is_tv else "year"] = year
-
-            r = await client.get(endpoint, params=params)
-            r.raise_for_status()
-            results = r.json().get("results", [])
-
-            # Retry without year if the year-filtered search returns nothing
-            if not results and year:
-                params.pop("first_air_date_year", None)
-                params.pop("year", None)
-                r = await client.get(endpoint, params=params)
-                r.raise_for_status()
-                results = r.json().get("results", [])
-
-            if not results:
-                raise HTTPException(
-                    status_code=404, detail=f"No TMDB results for '{title}'"
-                )
-
-            # Pick the best match: prefer exact title + year, else most popular
-            def _score(item: dict) -> tuple:
-                tmdb_title = (item.get("title") or item.get("name") or "").lower()
-                exact      = tmdb_title == title.lower()
-                date_str   = item.get("release_date") or item.get("first_air_date") or ""
-                item_year  = int(date_str[:4]) if date_str[:4].isdigit() else 0
-                year_match = item_year == year if year else True
-                return (exact and year_match, exact, item.get("popularity", 0))
-
-            results.sort(key=_score, reverse=True)
-            best        = results[0]
-            poster_path = best.get("poster_path")
-            if not poster_path:
-                raise HTTPException(
-                    status_code=404, detail="No poster available on TMDB"
-                )
-
-            poster_url  = f"https://image.tmdb.org/t/p/w500{poster_path}"
-            pr          = await client.get(poster_url)
-            pr.raise_for_status()
-            poster_data = pr.content
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=404, detail=f"TMDB poster fetch failed: {exc}"
+        canonical_title, canonical_year, poster_path = await state.tmdb.fuzzy_resolve(
+            title, media_type=type, year=year
         )
+    except Exception as exc:
+        logger.warning("TMDB fuzzy_resolve failed for '%s': %s", title, exc)
+        raise HTTPException(status_code=404, detail=str(exc))
 
-    # Cache the poster to disk using a sanitized filename
+    if not poster_path:
+        raise HTTPException(status_code=404, detail="No poster available on TMDB")
+
+    # 4. Download the image
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"https://image.tmdb.org/t/p/w500{poster_path}")
+            r.raise_for_status()
+            poster_data = r.content
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Poster download failed: {exc}")
+
+    # 5. Cache under the canonical key so future requests hit the cache
+    canonical_key = f"{canonical_title} ({canonical_year})" if canonical_year else canonical_title
     try:
         posters_dir.mkdir(parents=True, exist_ok=True)
-        poster_file = posters_dir / f"{_safe(poster_key)}.jpg"
-        poster_file.write_bytes(poster_data)
-        logger.info("Cached TMDB poster for '%s' → %s", title, poster_file.name)
+        cache_file = posters_dir / f"{_safe(canonical_key)}.jpg"
+        cache_file.write_bytes(poster_data)
+        logger.info("Cached TMDB poster '%s' → %s", canonical_key, cache_file.name)
     except Exception as exc:
-        logger.warning("Could not cache poster for '%s': %s", title, exc)
+        logger.warning("Could not cache poster for '%s': %s", canonical_key, exc)
 
     return Response(content=poster_data, media_type="image/jpeg")
+
+
+# ── Folder normalizer ─────────────────────────────────────────────────────────
+
+def _safe_folder(name: str) -> str:
+    """Make a title safe for use as a Windows/macOS folder name.
+
+    Replaces ``': '`` → ``' - '`` (preserves readability for subtitles like
+    "Thor: Love and Thunder") then strips the remaining illegal characters.
+    """
+    name = re.sub(r":\s*", " - ", name)          # "Thor: Love…" → "Thor - Love…"
+    name = re.sub(r'[\\/*?"<>|]', "", name)       # strip remaining illegals
+    return name.strip(" .")
+
+
+@router.post("/library/normalize")
+async def normalize_library(dry_run: bool = True):
+    """Rename media folders to canonical ``Title (Year)`` form using TMDB.
+
+    Queries TMDB for each folder in all configured library directories and
+    proposes (``dry_run=true``) or executes (``dry_run=false``) renames.
+
+    Only *subdirectories* are renamed — individual video files are never
+    touched.  Already-canonical folders (name unchanged) are skipped.
+
+    Returns::
+
+        {
+            "dry_run": true,
+            "proposals": [{"old": "...", "new": "...", "path": "..."}, …],
+            "renamed":   [],   // populated when dry_run=false
+            "skipped":   […],  // already correct / flat files / TMDB miss
+            "errors":    […],
+        }
+    """
+    if not state.tmdb:
+        raise HTTPException(status_code=503, detail="TMDB client not initialised")
+
+    cfg = settings
+    lib_dirs = [
+        (cfg.MOVIES_DIR,         "movie"),
+        (cfg.TV_DIR,             "tv"),
+        (cfg.ANIME_DIR,          "anime"),
+        (cfg.MOVIES_DIR_ARCHIVE, "movie"),
+        (cfg.TV_DIR_ARCHIVE,     "tv"),
+        (cfg.ANIME_DIR_ARCHIVE,  "anime"),
+    ]
+
+    proposals: list[dict] = []
+    skipped:   list[str]  = []
+    errors:    list[str]  = []
+
+    for lib_path_str, media_type in lib_dirs:
+        lib_path = Path(lib_path_str)
+        if not lib_path.exists():
+            continue
+
+        for entry in sorted(lib_path.iterdir()):
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+
+            current_name = entry.name
+            parsed_title, parsed_year = _extract_title_year(current_name)
+
+            try:
+                canonical_title, canonical_year, _ = await state.tmdb.fuzzy_resolve(
+                    parsed_title, media_type=media_type, year=parsed_year
+                )
+            except Exception as exc:
+                skipped.append(f"{current_name}: TMDB miss — {exc}")
+                continue
+
+            if not canonical_year:
+                canonical_year = parsed_year
+
+            new_name = _safe_folder(
+                f"{canonical_title} ({canonical_year})" if canonical_year
+                else canonical_title
+            )
+
+            if new_name == current_name:
+                skipped.append(f"{current_name}: already canonical")
+                continue
+
+            proposals.append({
+                "old":  current_name,
+                "new":  new_name,
+                "path": str(entry),
+            })
+
+    renamed: list[dict] = []
+
+    if not dry_run:
+        for prop in proposals:
+            old_path = Path(prop["path"])
+            new_path = old_path.parent / prop["new"]
+            try:
+                if new_path.exists():
+                    errors.append(
+                        f"Skipped '{prop['old']}' → '{prop['new']}': destination already exists"
+                    )
+                    continue
+                old_path.rename(new_path)
+                renamed.append(prop)
+                logger.info("Renamed: '%s' → '%s'", prop["old"], prop["new"])
+            except Exception as exc:
+                errors.append(f"Failed to rename '{prop['old']}': {exc}")
+
+        # Rescan so the UI reflects the new names
+        if state.library and renamed:
+            state.library.scan(force=True)
+
+    return {
+        "dry_run":   dry_run,
+        "proposals": proposals if dry_run else [],
+        "renamed":   renamed,
+        "skipped":   skipped,
+        "errors":    errors,
+    }
 
 
 # ── Episodes ──────────────────────────────────────────────────────────────────

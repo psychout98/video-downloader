@@ -1,5 +1,103 @@
 // ── Library tab: grid, cards, media modal, episodes, playback ────────────────
 
+// ── Normalize folders ─────────────────────────────────────────────────────────
+
+let _normalizePendingProposals = [];
+
+async function previewNormalize() {
+  const modal  = document.getElementById('normalize-modal');
+  const body   = document.getElementById('normalize-body');
+  const applyBtn = document.getElementById('normalize-apply-btn');
+  _normalizePendingProposals = [];
+  applyBtn.style.display = 'none';
+
+  body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">Querying TMDB for all folders… this may take a moment.</div>';
+  modal.classList.add('show');
+
+  try {
+    const r = await fetch('/api/library/normalize?dry_run=true', { method: 'POST' });
+    if (!r.ok) throw new Error(`Server error ${r.status}`);
+    const d = await r.json();
+
+    const proposals = d.proposals || [];
+    const skipped   = d.skipped   || [];
+    const errors    = d.errors    || [];
+
+    if (!proposals.length && !errors.length) {
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">All folders are already in canonical form. Nothing to rename.</div>';
+      return;
+    }
+
+    _normalizePendingProposals = proposals;
+
+    let html = '';
+
+    if (proposals.length) {
+      html += `<div style="font-weight:600;margin-bottom:10px;color:var(--text)">${proposals.length} folder${proposals.length !== 1 ? 's' : ''} will be renamed:</div>`;
+      html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+      html += '<thead><tr style="color:var(--muted);text-align:left;border-bottom:1px solid var(--border)"><th style="padding:4px 8px">Current name</th><th style="padding:4px 8px">→ New name</th></tr></thead><tbody>';
+      for (const p of proposals) {
+        html += `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:5px 8px;color:var(--muted)">${esc(p.old)}</td>
+          <td style="padding:5px 8px;color:var(--accent);font-weight:500">${esc(p.new)}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      applyBtn.style.display = '';
+    }
+
+    if (errors.length) {
+      html += `<div style="margin-top:14px;color:var(--danger);font-size:12px"><strong>Errors (${errors.length}):</strong><br>${errors.map(esc).join('<br>')}</div>`;
+    }
+
+    body.innerHTML = html;
+
+  } catch (e) {
+    body.innerHTML = `<div style="padding:20px;color:var(--danger)">Failed to fetch proposals: ${esc(String(e))}</div>`;
+  }
+}
+
+async function applyNormalize() {
+  if (!_normalizePendingProposals.length) return;
+  const body     = document.getElementById('normalize-body');
+  const applyBtn = document.getElementById('normalize-apply-btn');
+  applyBtn.disabled = true;
+  applyBtn.textContent = 'Renaming…';
+
+  try {
+    const r = await fetch('/api/library/normalize?dry_run=false', { method: 'POST' });
+    if (!r.ok) throw new Error(`Server error ${r.status}`);
+    const d = await r.json();
+
+    const renamed = d.renamed || [];
+    const errors  = d.errors  || [];
+
+    let html = '';
+    if (renamed.length) {
+      html += `<div style="color:var(--accent);font-weight:600;margin-bottom:10px">✓ Renamed ${renamed.length} folder${renamed.length !== 1 ? 's' : ''} successfully.</div>`;
+    }
+    if (errors.length) {
+      html += `<div style="color:var(--danger);font-size:12px"><strong>Errors:</strong><br>${errors.map(esc).join('<br>')}</div>`;
+    }
+    body.innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--muted)">Done.</div>';
+    applyBtn.style.display = 'none';
+    _normalizePendingProposals = [];
+
+    // Reload the library so cards reflect new names
+    if (renamed.length) setTimeout(() => loadLibrary(true), 400);
+
+  } catch (e) {
+    body.innerHTML = `<div style="color:var(--danger)">Rename failed: ${esc(String(e))}</div>`;
+    applyBtn.disabled = false;
+    applyBtn.textContent = 'Apply Renames';
+  }
+}
+
+function closeNormalizeModal(event) {
+  if (event && event.target !== event.currentTarget) return;
+  document.getElementById('normalize-modal').classList.remove('show');
+}
+
 
 // ── Library load / filter ─────────────────────────────────────────────────────
 

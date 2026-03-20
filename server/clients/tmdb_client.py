@@ -122,6 +122,108 @@ class TMDBClient:
         except Exception:
             return ""
 
+    async def fuzzy_resolve(
+        self,
+        title: str,
+        media_type: str = "movie",
+        year: Optional[int] = None,
+    ) -> tuple[str, Optional[int], Optional[str]]:
+        """Find the best TMDB match for a title using progressive fallback.
+
+        Returns ``(canonical_title, canonical_year, poster_path)`` where
+        ``poster_path`` is the raw TMDB path (e.g. ``"/abc123.jpg"``).
+
+        Search strategy (stops at the first pass that returns results):
+          1. Type-specific endpoint  + year filter
+          2. Type-specific endpoint  (no year)
+          3. ``/search/multi``       with full title   (TMDB's own fuzzy engine)
+          4. ``/search/multi``       progressively shorter title (strips trailing
+             words one at a time, up to 4 removals, stops at 2-word minimum)
+
+        Results are scored by (exact-title-and-year, exact-title, popularity)
+        so a precise match always wins even if found during a fuzzy pass.
+        """
+        is_tv     = media_type in ("tv", "anime")
+        endpoint  = "/search/tv" if is_tv else "/search/movie"
+        date_key  = "first_air_date_year" if is_tv else "year"
+        title_key = "name" if is_tv else "title"
+
+        def _score(item: dict) -> tuple:
+            t  = (item.get("title") or item.get("name") or "").lower()
+            ds = item.get("release_date") or item.get("first_air_date") or ""
+            iy = int(ds[:4]) if ds[:4].isdigit() else 0
+            return (
+                t == title.lower() and (iy == year if year else True),
+                t == title.lower(),
+                item.get("popularity", 0),
+            )
+
+        async def _typed(q: str, with_year: bool) -> list[dict]:
+            p: dict = {"query": q, "include_adult": False}
+            if with_year and year:
+                p[date_key] = year
+            r = await self._client.get(endpoint, params=p)
+            r.raise_for_status()
+            return r.json().get("results", [])
+
+        async def _multi(q: str) -> list[dict]:
+            r = await self._client.get(
+                "/search/multi", params={"query": q, "include_adult": False}
+            )
+            r.raise_for_status()
+            return [
+                x for x in r.json().get("results", [])
+                if x.get("media_type") in ("movie", "tv")
+            ]
+
+        # Attempt 1 & 2 — type-specific, with then without year
+        for with_year in (True, False):
+            results = await _typed(title, with_year)
+            if results:
+                results.sort(key=_score, reverse=True)
+                best = results[0]
+                return (
+                    best.get(title_key) or title,
+                    int(ds[:4]) if (ds := best.get("release_date") or best.get("first_air_date") or "")[:4].isdigit() else year,
+                    best.get("poster_path"),
+                )
+
+        # Attempt 3 — TMDB multi-search (handles cross-type and fuzzy spelling)
+        results = await _multi(title)
+        if results:
+            results.sort(key=_score, reverse=True)
+            best  = results[0]
+            tkey  = "name" if best.get("media_type") == "tv" else "title"
+            ds    = best.get("release_date") or best.get("first_air_date") or ""
+            return (
+                best.get(tkey) or title,
+                int(ds[:4]) if ds[:4].isdigit() else year,
+                best.get("poster_path"),
+            )
+
+        # Attempt 4 — progressively shorten the title (handles over-long
+        # filenames like "Demon.Slayer.Kimetsu.no.Yaiba.Infinity.Castle.2025")
+        words = title.split()
+        for drop in range(1, min(5, len(words) - 1)):   # keep at least 2 words
+            shorter  = " ".join(words[:-drop])
+            results  = await _multi(shorter)
+            if results:
+                results.sort(key=_score, reverse=True)
+                best  = results[0]
+                tkey  = "name" if best.get("media_type") == "tv" else "title"
+                ds    = best.get("release_date") or best.get("first_air_date") or ""
+                logger.info(
+                    "fuzzy_resolve: matched '%s' via shortened query '%s'",
+                    best.get(tkey), shorter,
+                )
+                return (
+                    best.get(tkey) or title,
+                    int(ds[:4]) if ds[:4].isdigit() else year,
+                    best.get("poster_path"),
+                )
+
+        raise ValueError(f"No TMDB results for '{title}'")
+
     async def close(self):
         await self._client.aclose()
 
