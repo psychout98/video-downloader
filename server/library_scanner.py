@@ -57,6 +57,11 @@ def _extract_title_year(name: str) -> tuple[str, Optional[int]]:
     return _clean_title(name), None
 
 
+def _safe_poster_key(s: str) -> str:
+    """Strip characters that are illegal in Windows filenames."""
+    return re.sub(r'[\\/:*?"<>|]', "_", s).strip()
+
+
 def _find_poster(directory: Path, title_key: Optional[str] = None) -> Optional[str]:
     """Return the path to a poster image for the given media directory.
 
@@ -71,8 +76,9 @@ def _find_poster(directory: Path, title_key: Optional[str] = None) -> Optional[s
     posters_dir = Path(settings.POSTERS_DIR)
 
     def _check(key: str) -> Optional[str]:
+        safe = _safe_poster_key(key)
         for ext in (".jpg", ".png", ".jpeg", ".webp"):
-            p = posters_dir / f"{key}{ext}"
+            p = posters_dir / f"{safe}{ext}"
             if p.exists():
                 return str(p)
         return None

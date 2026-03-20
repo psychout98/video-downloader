@@ -511,6 +511,7 @@ let lastJobs      = [];
 let libItems      = [];
 let currentSearchId = null;
 let selectedMedia   = null;   // for modal
+let _episodeList    = [];     // flat episode array for current modal (indexed by onclick)
 let npStatus        = null;   // latest MPC-BE status
 let npPollTimer     = null;   // fast poll (2 s) when NP tab is active
 let npBgTimer       = null;   // slow background poll (5 s) on all other tabs
@@ -938,7 +939,9 @@ function openMediaModal(itemJson) {
 async function loadEpisodes(item) {
   const epEl = document.getElementById('modal-episodes');
   try {
-    const r = await fetch(`/api/library/episodes?folder=${encodeURIComponent(item.folder)}`);
+    let url = `/api/library/episodes?folder=${encodeURIComponent(item.folder)}`;
+    if (item.folder_archive) url += `&folder_archive=${encodeURIComponent(item.folder_archive)}`;
+    const r = await fetch(url);
     if (!r.ok) throw new Error('API error');
     const d = await r.json();
     _modalEpisodeData = d.seasons;
@@ -949,6 +952,7 @@ async function loadEpisodes(item) {
 }
 
 function renderEpisodes(seasons) {
+  _episodeList = [];  // reset flat list every time
   const epEl = document.getElementById('modal-episodes');
   if (!seasons || !seasons.length) {
     epEl.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:13px">No episodes found.</div>';
@@ -958,6 +962,8 @@ function renderEpisodes(seasons) {
   for (const {season, episodes} of seasons) {
     html += `<div class="ep-season-header">Season ${season} <span style="font-weight:400;opacity:.6">(${episodes.length} ep)</span></div>`;
     for (const ep of episodes) {
+      const idx = _episodeList.length;
+      _episodeList.push(ep);
       const epLabel = ep.episode ? `S${String(season).padStart(2,'0')}E${String(ep.episode).padStart(2,'0')}` : `S${String(season).padStart(2,'0')}`;
       const pct = ep.progress_pct || 0;
       const done = pct >= 85;
@@ -968,7 +974,7 @@ function renderEpisodes(seasons) {
           : '';
       const resumeTitle = pct > 0 && !done ? ` (resume ${fmtMs(ep.position_ms)})` : '';
       html += `<div class="ep-row">
-        <button class="ep-play" onclick="playEpisode(${JSON.stringify(JSON.stringify(ep))})" title="Play${resumeTitle}">▶</button>
+        <button class="ep-play" onclick="playEpisode(${idx})" title="Play${resumeTitle}">▶</button>
         <div class="ep-info">
           <div class="ep-label">${esc(epLabel)}</div>
           <div class="ep-title">${esc(ep.title || ep.filename)}</div>
@@ -980,9 +986,12 @@ function renderEpisodes(seasons) {
   epEl.innerHTML = html;
 }
 
-async function playEpisode(epJson) {
-  const ep = JSON.parse(epJson);
-  await _openInMPC(ep.path);
+async function playEpisode(idx) {
+  const ep = _episodeList[idx];
+  if (!ep) return;
+  // Build a playlist from this episode onwards so MPC-BE autoplays the rest
+  const playlist = _episodeList.slice(idx).map(e => e.path);
+  await _openInMPC(ep.path, playlist);
 }
 
 function closeModal(e) { if (e.target === document.getElementById('media-modal')) closeModalDirect(); }
@@ -990,23 +999,26 @@ function closeModalDirect() { document.getElementById('media-modal').classList.r
 
 async function playInMPC() {
   if (!selectedMedia) return;
-  // For TV/anime, find first unwatched (or lowest progress) episode
   let path = selectedMedia.path;
+  let playlist = null;
   if (_modalEpisodeData && _modalEpisodeData.length) {
     const allEps = _modalEpisodeData.flatMap(s => s.episodes);
-    // Find first episode not yet finished (< 85%)
-    const next = allEps.find(e => (e.progress_pct || 0) < 85);
-    if (next) path = next.path;
+    // Find first unwatched episode, then queue everything from there onwards
+    const startIdx = allEps.findIndex(e => (e.progress_pct || 0) < 85);
+    if (startIdx >= 0) {
+      path = allEps[startIdx].path;
+      playlist = allEps.slice(startIdx).map(e => e.path);
+    }
   }
-  await _openInMPC(path);
+  await _openInMPC(path, playlist);
 }
 
-async function _openInMPC(path) {
+async function _openInMPC(path, playlist = null) {
   let resp;
   try {
     resp = await fetch('/api/mpc/open', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({path})
+      body: JSON.stringify({path, playlist})
     });
   } catch(e) {
     alert('Could not reach the server.');
@@ -1020,7 +1032,15 @@ async function _openInMPC(path) {
   const d = await resp.json();
   if (d.ok) {
     closeModalDirect();
-    document.querySelectorAll('.tab-btn').forEach(b => { if (b.textContent.includes('Now Playing')) b.click(); });
+    const switchToNP = () => document.querySelectorAll('.tab-btn').forEach(b => { if (b.textContent.includes('Now Playing')) b.click(); });
+    if (d.launched) {
+      // MPC-BE just started — give it a few seconds to load before switching
+      // to the Now Playing tab (avoids "unreachable" flash on first poll)
+      switchToNP();
+      setTimeout(refreshNP, 4000);
+    } else {
+      switchToNP();
+    }
   } else {
     alert('MPC-BE could not open the file. Check that its web interface is enabled on port 13579.');
   }

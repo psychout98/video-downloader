@@ -211,6 +211,7 @@ class MPCCommandRequest(BaseModel):
 
 class MPCOpenRequest(BaseModel):
     path: str
+    playlist: Optional[list[str]] = None   # if provided, open all files as a playlist
 
 
 # ---------------------------------------------------------------------------
@@ -457,9 +458,14 @@ async def get_poster_tmdb(
     # that are always in a per-title subfolder).
     folder_name = folder_path.name
 
+    def _safe(s: str) -> str:
+        """Strip characters illegal in Windows filenames (e.g. colon in 'Thor: ...')."""
+        return re.sub(r'[\\/:*?"<>|]', "_", s).strip()
+
     def _check_posters_dir(key: str):
+        safe = _safe(key)
         for ext in (".jpg", ".png", ".jpeg", ".webp"):
-            p = posters_dir / f"{key}{ext}"
+            p = posters_dir / f"{safe}{ext}"
             if p.exists() and p.is_file():
                 return p
         return None
@@ -537,11 +543,12 @@ async def get_poster_tmdb(
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"TMDB poster fetch failed: {exc}")
 
-    # Persist using the title-based key so both flat-file and subfoldered movies
-    # get a unique filename (avoids "Movies.jpg" being shared across all movies).
+    # Persist using the sanitized title-based key.  Sanitization is required on
+    # Windows where ':' and other characters are illegal in filenames
+    # (e.g. "Thor: Love and Thunder (2022)" would otherwise fail to save).
     try:
         posters_dir.mkdir(parents=True, exist_ok=True)
-        poster_file = posters_dir / f"{poster_key}.jpg"
+        poster_file = posters_dir / f"{_safe(poster_key)}.jpg"
         with open(poster_file, "wb") as fh:
             fh.write(poster_data)
         logger.info("Saved TMDB poster for '%s' → %s", title, poster_file)
@@ -561,48 +568,62 @@ _S_ONLY_RE = re.compile(r"[Ss]eason\s*(\d{1,2})|[Ss](\d{1,2})\b", re.I)
 
 
 @app.get("/api/library/episodes")
-async def get_episodes(folder: str):
-    """Return all episodes inside a TV/anime show folder, grouped by season."""
+async def get_episodes(folder: str, folder_archive: Optional[str] = None):
+    """Return all episodes inside a TV/anime show folder, grouped by season.
+
+    Optionally also scans *folder_archive* (the SATA copy) so that episodes
+    which have already been watched+archived still appear in the list.
+    """
     show_dir = Path(folder)
     if not show_dir.exists() or not show_dir.is_dir():
         raise HTTPException(status_code=404, detail="Show folder not found")
 
+    # Collect dirs to scan; use a set of resolved paths to avoid duplicates
+    dirs_to_scan: list[Path] = [show_dir]
+    if folder_archive:
+        arch = Path(folder_archive)
+        if arch.exists() and arch.is_dir() and arch.resolve() != show_dir.resolve():
+            dirs_to_scan.append(arch)
+
     seasons: dict[int, list[dict]] = {}
+    seen_filenames: set[str] = set()   # deduplicate by filename across both drives
 
-    for video in sorted(show_dir.rglob("*")):
-        if not video.is_file() or video.suffix.lower() not in _VIDEO_EXTS_EP:
-            continue
+    for scan_dir in dirs_to_scan:
+        for video in sorted(scan_dir.rglob("*")):
+            if not video.is_file() or video.suffix.lower() not in _VIDEO_EXTS_EP:
+                continue
+            if video.name in seen_filenames:
+                continue
+            seen_filenames.add(video.name)
 
-        stem = video.stem
-        m = _SXEX_RE.search(stem)
-        if m:
-            season  = int(m.group(1))
-            episode = int(m.group(2))
-            # Episode title is whatever comes after SxxExx, stripped of dashes/spaces
-            ep_title = stem[m.end():].strip(" -–")
-        else:
-            # Fall back to parsing the parent folder for a season number
-            ms = _S_ONLY_RE.search(video.parent.name)
-            season  = int(ms.group(1) or ms.group(2)) if ms else 1
-            episode = 0
-            ep_title = stem
+            stem = video.stem
+            m = _SXEX_RE.search(stem)
+            if m:
+                season  = int(m.group(1))
+                episode = int(m.group(2))
+                ep_title = stem[m.end():].strip(" -–")
+            else:
+                ms = _S_ONLY_RE.search(video.parent.name)
+                season  = int(ms.group(1) or ms.group(2)) if ms else 1
+                episode = 0
+                ep_title = stem
 
-        progress = _progress_store.get(str(video)) if _progress_store else None
-        pct = 0
-        if progress and progress.get("duration_ms"):
-            pct = round(min(progress["position_ms"] / progress["duration_ms"], 1.0) * 100)
+            progress = _progress_store.get(str(video)) if _progress_store else None
+            pct = 0
+            if progress and progress.get("duration_ms"):
+                pct = round(min(progress["position_ms"] / progress["duration_ms"], 1.0) * 100)
 
-        seasons.setdefault(season, []).append({
-            "season":      season,
-            "episode":     episode,
-            "title":       ep_title,
-            "filename":    video.name,
-            "path":        str(video),
-            "size_bytes":  video.stat().st_size,
-            "progress_pct":  pct,
-            "position_ms":   progress.get("position_ms", 0) if progress else 0,
-            "duration_ms":   progress.get("duration_ms", 0) if progress else 0,
-        })
+            seasons.setdefault(season, []).append({
+                "season":        season,
+                "episode":       episode,
+                "title":         ep_title,
+                "filename":      video.name,
+                "path":          str(video),
+                "size_bytes":    video.stat().st_size,
+                "progress_pct":  pct,
+                "position_ms":   progress.get("position_ms", 0) if progress else 0,
+                "duration_ms":   progress.get("duration_ms", 0) if progress else 0,
+            })
 
     for eps in seasons.values():
         eps.sort(key=lambda e: (e["episode"], e["filename"]))
@@ -658,14 +679,27 @@ async def mpc_open(body: MPCOpenRequest):
     import asyncio
     import subprocess
 
-    file_path = body.path
+    # Build a .m3u playlist when multiple files are provided so MPC-BE
+    # autoplays the next episode when the current one finishes.
+    files = body.playlist if (body.playlist and len(body.playlist) > 1) else [body.path]
+
+    if len(files) > 1:
+        playlist_file = _ROOT_DIR / "data" / "current_playlist.m3u"
+        playlist_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(playlist_file, "w", encoding="utf-8-sig") as fh:
+            fh.write("#EXTM3U\n")
+            for p in files:
+                fh.write(p + "\n")
+        open_path = str(playlist_file)
+    else:
+        open_path = files[0]
 
     # Check whether MPC-BE is already running
     mpc_running = await _mpc.ping()
 
     if not mpc_running:
-        # Launch MPC-BE with the file as a CLI argument — it opens and starts
-        # playing the file automatically without needing any further commands.
+        # Launch MPC-BE with the file/playlist path — it opens and starts
+        # playing automatically without needing any further commands.
         exe = settings.MPC_BE_EXE
         if not Path(exe).exists():
             raise HTTPException(
@@ -674,17 +708,16 @@ async def mpc_open(body: MPCOpenRequest):
             )
         try:
             subprocess.Popen(
-                [exe, file_path],
+                [exe, open_path],
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
             )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Failed to launch MPC-BE: {exc}")
         return {"ok": True, "launched": True}
 
-    # MPC-BE is already open — send the open-file command, then wait briefly
-    # for it to load the file, then send an explicit Play command so playback
-    # starts even if MPC-BE is in a paused/stopped state.
-    ok = await _mpc.open_file(file_path)
+    # MPC-BE is already open — send the open-file command, wait briefly for
+    # it to load, then send an explicit Play command.
+    ok = await _mpc.open_file(open_path)
     if ok:
         await asyncio.sleep(1.0)
         await _mpc.play()
