@@ -44,7 +44,7 @@ POSTER_NAMES = {"poster.jpg", "poster.png", "movie.jpg", "movie.png",
 # --- Filename parsers -------------------------------------------------
 
 _PAREN_YEAR = re.compile(r"^(.+?)\s*\((\d{4})\)\s*$")
-_DOT_YEAR   = re.compile(r"^(.+?)[\.\s_](\d{4})[\.\s_]")
+_DOT_YEAR   = re.compile(r"^(.+?)[\.\s_](\d{4})(?:[\.\s_]|$)")
 _DASH_YEAR  = re.compile(r"^(.+?)\s+-\s+(\d{4})\s*$")
 _QUALITY    = re.compile(
     r"\b(2160p|1080p|720p|480p|4k|uhd|bluray|blu-ray|web-dl|webrip|remux|hevc|x265|x264|hdr|dv|atmos)\b",
