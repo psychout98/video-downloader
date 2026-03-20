@@ -206,7 +206,7 @@
         <span id="settings-save-toast" class="settings-save-toast"></span>
       </div>
       <p style="font-size:11px;color:var(--muted);margin-top:8px">
-        ⚠ Restart the server after saving for changes to take effect.
+        ⚠ HOST and PORT changes require a server restart to take effect.
       </p>
     </div>
 
@@ -225,9 +225,11 @@
     <div class="settings-section">
       <div class="settings-section-title">🔧 Server Control</div>
       <div class="control-btns">
+        <button class="btn"        onclick="confirmRestartServer()">↺ Restart Server</button>
         <button class="btn-danger" onclick="confirmStopServer()">⏹ Stop Server</button>
         <button class="btn-ghost"  onclick="showUninstallHelp()">🗑 Uninstall</button>
       </div>
+      <span id="restart-toast" style="display:none;font-size:12px;color:var(--success);margin-left:10px"></span>
       <div id="uninstall-help" style="display:none;margin-top:16px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);padding:14px;font-size:13px;line-height:1.8">
         <strong>To uninstall Media Downloader:</strong><br>
         1. Stop the server (button above or close the window).<br>

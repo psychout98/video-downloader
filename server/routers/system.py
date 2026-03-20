@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 
 from fastapi import APIRouter, HTTPException
 
@@ -65,3 +66,16 @@ async def api_shutdown():
 
     asyncio.create_task(_do_shutdown())
     return {"ok": True, "message": "Server shutting down…"}
+
+
+@router.post("/restart")
+async def api_restart():
+    """Restart the server process by re-exec'ing the current Python command."""
+    logger.info("Restart requested via API")
+
+    async def _do_restart():
+        await asyncio.sleep(0.4)   # let the response be sent first
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
+    asyncio.create_task(_do_restart())
+    return {"ok": True, "message": "Server restarting…"}

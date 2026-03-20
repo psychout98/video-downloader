@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import state
-from ..config import settings
+from ..config import settings, reload_settings
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -63,8 +63,26 @@ async def update_settings(body: SettingsUpdateRequest):
     if errors:
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
+    # Hot-reload the settings object so new values take effect immediately
+    reload_settings()
+    _reinit_clients()
+
     return {
-        "ok":    True,
+        "ok":      True,
         "written": written,
-        "note":  "Restart the server for changes to take effect.",
+        "note":    "Settings applied. A restart is only needed for HOST/PORT changes.",
     }
+
+
+def _reinit_clients() -> None:
+    """Reinitialise API-key-bearing clients after a settings reload."""
+    from ..clients.tmdb_client      import TMDBClient
+    from ..clients.torrentio_client import TorrentioClient
+
+    if state.tmdb is not None:
+        state.tmdb = TMDBClient(settings.TMDB_API_KEY)
+    if state.torrentio is not None:
+        state.torrentio = TorrentioClient(
+            settings.REAL_DEBRID_API_KEY,
+            settings.TMDB_API_KEY,
+        )

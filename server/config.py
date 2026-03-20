@@ -64,3 +64,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def reload_settings() -> None:
+    """Re-read the .env file and update the module-level settings object in-place.
+
+    Called by the settings router after persisting changes so that the new
+    values take effect immediately without a full server restart.
+    """
+    global settings
+    new = Settings()
+    # Copy every field from the freshly-loaded instance onto the existing one
+    # so that all existing references to `settings` pick up the new values.
+    for field in new.model_fields:
+        object.__setattr__(settings, field, getattr(new, field))
