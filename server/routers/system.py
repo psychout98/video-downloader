@@ -76,13 +76,16 @@ async def api_restart():
     async def _do_restart():
         await asyncio.sleep(0.4)   # let the response be sent first
         import subprocess
+        # Reconstruct as "python -m uvicorn <args>" to avoid sys.argv[0] being
+        # the uvicorn __main__.py path, which would shadow stdlib logging.
+        cmd = [sys.executable, "-m", "uvicorn"] + sys.argv[1:]
         kwargs: dict = {"cwd": os.getcwd(), "env": os.environ.copy()}
         if sys.platform == "win32":
             # Detach from the current console so the child outlives the parent
-            DETACHED_PROCESS      = 0x00000008
+            DETACHED_PROCESS         = 0x00000008
             CREATE_NEW_PROCESS_GROUP = 0x00000200
-            kwargs["creationflags"] = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen([sys.executable] + sys.argv, **kwargs)
+            kwargs["creationflags"]  = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen(cmd, **kwargs)
         os._exit(0)   # terminate this process; child carries on independently
 
     asyncio.create_task(_do_restart())

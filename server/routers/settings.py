@@ -82,7 +82,4 @@ def _reinit_clients() -> None:
     if state.tmdb is not None:
         state.tmdb = TMDBClient(settings.TMDB_API_KEY)
     if state.torrentio is not None:
-        state.torrentio = TorrentioClient(
-            settings.REAL_DEBRID_API_KEY,
-            settings.TMDB_API_KEY,
-        )
+        state.torrentio = TorrentioClient(settings.REAL_DEBRID_API_KEY)

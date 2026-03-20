@@ -588,7 +588,171 @@ class InstallerApp(tk.Tk):
                   command=lambda: webbrowser.open(
                       "https://real-debrid.com/apitoken")
                   ).pack(side="left", padx=4)
+
+        # ── Uninstall section (shown when an existing install is detected) ──
+        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=(14, 0))
+        self._uninstall_frame = tk.Frame(p, bg=BG)
+        self._uninstall_frame.pack(fill="x", pady=(8, 0))
+
+        uninstall_left = tk.Frame(self._uninstall_frame, bg=BG)
+        uninstall_left.pack(side="left", fill="x", expand=True)
+        self._uninstall_detect_lbl = tk.Label(
+            uninstall_left, bg=BG, fg=SUCCESS, font=FONT_LABEL,
+            text="✓ Existing installation detected at this location.")
+        self._uninstall_detect_lbl.pack(anchor="w")
+        tk.Label(uninstall_left, bg=BG, fg=MUTED, font=FONT_LABEL,
+                 text="Uninstall will stop the server, remove the Task Scheduler task, "
+                      "and delete the install folder. Media files are not touched."
+                 ).pack(anchor="w", pady=(2, 0))
+
+        self._uninstall_btn = tk.Button(
+            self._uninstall_frame, text="🗑 Uninstall",
+            bg=ERROR, fg="#fff", relief="flat",
+            font=("Segoe UI", 10, "bold"),
+            activebackground="#b84444", activeforeground="#fff",
+            cursor="hand2", padx=14, pady=6,
+            command=self._do_uninstall)
+        self._uninstall_btn.pack(side="right", padx=(12, 0))
+
+        # Hide until detection confirms an install exists
+        self._uninstall_frame.pack_forget()
+
+        # Re-check whenever the install path changes
+        self.install_var.trace_add("write", lambda *_: self._refresh_uninstall_section())
+        self._refresh_uninstall_section()
+
         return p
+
+    def _is_installed(self) -> bool:
+        """Return True if an existing install is detected at the chosen path."""
+        dest = Path(self.install_var.get().strip())
+        return (dest / "run_server.bat").exists() and (dest / ".venv").exists()
+
+    def _refresh_uninstall_section(self):
+        """Show or hide the uninstall section based on whether an install is detected."""
+        try:
+            if self._is_installed():
+                self._uninstall_frame.pack(fill="x", pady=(8, 0))
+            else:
+                self._uninstall_frame.pack_forget()
+        except Exception:
+            pass
+
+    def _do_uninstall(self):
+        dest = Path(self.install_var.get().strip())
+        if not messagebox.askyesno(
+            "Confirm Uninstall",
+            f"This will permanently:\n\n"
+            f"  \u2022 Stop the running server\n"
+            f"  \u2022 Remove the Task Scheduler task\n"
+            f"  \u2022 Remove the firewall rule\n"
+            f"  \u2022 Delete the install folder:\n    {dest}\n\n"
+            f"Your media files will NOT be deleted.\n\n"
+            f"Continue?",
+            icon="warning",
+        ):
+            return
+
+        # ── Progress window ────────────────────────────────────────────────
+        win = tk.Toplevel(self)
+        win.title("Uninstalling Media Downloader")
+        win.configure(bg=BG)
+        win.resizable(False, False)
+        w, h = 560, 360
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        win.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+        win.grab_set()
+
+        tk.Label(win, text="Uninstalling Media Downloader…",
+                 bg=BG, fg=TEXT, font=FONT_SUB).pack(anchor="w", padx=20, pady=(16, 4))
+
+        log = tk.Text(win, height=12, state="disabled",
+                      bg=SURFACE2, fg=MUTED, font=FONT_MONO,
+                      relief="flat", bd=4,
+                      highlightthickness=1, highlightbackground=BORDER)
+        log.pack(fill="both", expand=True, padx=20, pady=6)
+
+        status_lbl = tk.Label(win, text="", bg=BG, fg=MUTED, font=FONT_LABEL)
+        status_lbl.pack(anchor="w", padx=20)
+
+        close_btn = tk.Button(
+            win, text="Close", state="disabled",
+            bg=ACCENT, fg="#111", relief="flat",
+            font=("Segoe UI", 10, "bold"), cursor="hand2",
+            activebackground="#c27b00", padx=16, pady=6,
+            command=win.destroy)
+        close_btn.pack(side="right", padx=20, pady=12)
+
+        def _run():
+            import time
+            cf = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
+
+            def run_cmd(args):
+                try:
+                    r = subprocess.run(args, capture_output=True, text=True,
+                                       creationflags=cf, timeout=10)
+                    return (r.stdout + r.stderr).strip()
+                except Exception as exc:
+                    return str(exc)
+
+            _append_log(log, "Stopping server (Task Scheduler)…\n")
+            run_cmd(["schtasks", "/end", "/tn", "MediaDownloader"])
+            _append_log(log, "  Done\n")
+
+            # Kill any python/wscript processes launched from this install dir
+            _append_log(log, "Terminating server process…\n")
+            venv_py = str(dest / ".venv" / "Scripts" / "python.exe")
+            vbs     = str(dest / "silent_launch.vbs")
+            for path_fragment in [venv_py, vbs]:
+                try:
+                    subprocess.run(
+                        ["taskkill", "/f", "/fi",
+                         f"IMAGENAME eq python.exe",
+                         "/fi", f"MODULES eq {Path(path_fragment).name}"],
+                        capture_output=True, creationflags=cf)
+                except Exception:
+                    pass
+            # Fallback: wmic to kill by executable path
+            try:
+                subprocess.run(
+                    ["wmic", "process", "where",
+                     f"ExecutablePath like '%{dest.name}%'", "delete"],
+                    capture_output=True, creationflags=cf, timeout=8)
+            except Exception:
+                pass
+            time.sleep(1)
+            _append_log(log, "  Done\n")
+
+            _append_log(log, "\nRemoving Task Scheduler task…\n")
+            out = run_cmd(["schtasks", "/delete", "/tn", "MediaDownloader", "/f"])
+            _append_log(log, f"  {out or 'Done'}\n")
+
+            _append_log(log, "\nRemoving firewall rule…\n")
+            run_cmd(["netsh", "advfirewall", "firewall",
+                     "delete", "rule", "name=MediaDownloader"])
+            _append_log(log, "  Done\n")
+
+            _append_log(log, f"\nDeleting install folder:\n  {dest}\n")
+            try:
+                shutil.rmtree(dest)
+                _append_log(log, "  Deleted.\n")
+                ok = True
+            except Exception as exc:
+                _append_log(log, f"  ERROR: {exc}\n")
+                _append_log(log, "  Some files may be locked. Close any open windows "
+                                 "from this folder and try again.\n")
+                ok = False
+
+            if ok:
+                status_lbl.configure(text="✓ Uninstall complete. You can close this window.", fg=SUCCESS)
+            else:
+                status_lbl.configure(
+                    text="⚠ Finished with errors — check the log above.", fg=ACCENT)
+            close_btn.configure(state="normal")
+            # Hide the uninstall section on the welcome page
+            self._uninstall_frame.pack_forget()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _browse_install_dir(self):
         d = filedialog.askdirectory(
