@@ -226,7 +226,7 @@ def _validate_install(root: Path, log_widget, done_callback):
     """Verify the install worked: check key packages can be imported."""
     python = _venv_python(root)
     check_script = (
-        "import uvicorn, fastapi, dotenv, aiohttp, aiofiles; "
+        "import uvicorn, fastapi, dotenv, aiofiles, aiosqlite, httpx; "
         "print('All packages OK')"
     )
     cmd = [python, "-c", check_script]
