@@ -159,8 +159,45 @@ def _find_python(install_root: Path) -> str:
     )
 
 
+# ── venv creation ─────────────────────────────────────────────────────────────
+def _create_venv(root: Path, system_python: str, log_widget, done_callback):
+    """Create a .venv inside root using the system Python."""
+    venv_dir = root / ".venv"
+    cmd = [system_python, "-m", "venv", str(venv_dir)]
+
+    def _run():
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
+            )
+            for line in proc.stdout:
+                _append_log(log_widget, line)
+            proc.wait()
+            ok = proc.returncode == 0
+            if ok:
+                _append_log(log_widget, f"  Created: {venv_dir}\n")
+        except Exception as exc:
+            _append_log(log_widget, f"\nERROR creating venv: {exc}\n")
+            ok = False
+        done_callback(ok)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _venv_python(root: Path) -> str:
+    """Return the Python executable inside the project's .venv."""
+    if IS_WINDOWS:
+        return str(root / ".venv" / "Scripts" / "python.exe")
+    return str(root / ".venv" / "bin" / "python")
+
+
 # ── pip install ───────────────────────────────────────────────────────────────
-def _pip_install(root: Path, python: str, log_widget, done_callback):
+def _pip_install(root: Path, log_widget, done_callback):
+    """Install requirements into the project's .venv."""
+    python = _venv_python(root)
     requirements = root / "requirements.txt"
     cmd = [python, "-m", "pip", "install", "-r", str(requirements), "--upgrade"]
 
@@ -178,6 +215,36 @@ def _pip_install(root: Path, python: str, log_widget, done_callback):
             ok = proc.returncode == 0
         except Exception as exc:
             _append_log(log_widget, f"\nERROR: {exc}\n")
+            ok = False
+        done_callback(ok)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# ── Post-install validation ───────────────────────────────────────────────────
+def _validate_install(root: Path, log_widget, done_callback):
+    """Verify the install worked: check key packages can be imported."""
+    python = _venv_python(root)
+    check_script = (
+        "import uvicorn, fastapi, dotenv, aiohttp, aiofiles; "
+        "print('All packages OK')"
+    )
+    cmd = [python, "-c", check_script]
+
+    def _run():
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
+            )
+            if result.returncode == 0:
+                _append_log(log_widget, f"  {result.stdout.strip()}\n")
+                ok = True
+            else:
+                _append_log(log_widget, f"  Import check failed:\n{result.stderr}\n")
+                ok = False
+        except Exception as exc:
+            _append_log(log_widget, f"  Validation error: {exc}\n")
             ok = False
         done_callback(ok)
 
@@ -726,29 +793,46 @@ class InstallerApp(tk.Tk):
 
             _append_log(self._log_text, "Locating Python interpreter…\n")
             try:
-                python = _find_python(dest)
-                _append_log(self._log_text, f"  Using: {python}\n\n")
+                system_python = _find_python(dest)
+                _append_log(self._log_text, f"  Using: {system_python}\n\n")
             except RuntimeError as exc:
                 _append_log(self._log_text, f"  ERROR: {exc}\n")
                 self._finish_install(False); return
 
-            _append_log(self._log_text, "Installing Python dependencies…\n")
-            _pip_install(dest, python, self._log_text, _step2_after_pip)
+            _append_log(self._log_text, "Creating virtual environment (.venv)…\n")
+            _create_venv(dest, system_python, self._log_text, _step2_after_venv)
 
-        def _step2_after_pip(ok: bool):
+        def _step2_after_venv(ok: bool):
+            if not ok:
+                _append_log(self._log_text, "\nFailed to create virtual environment.\n")
+                self._finish_install(False); return
+            _append_log(self._log_text, "\nInstalling Python dependencies…\n")
+            _pip_install(dest, self._log_text, _step3_after_pip)
+
+        def _step3_after_pip(ok: bool):
             if not ok:
                 _append_log(self._log_text, "\nDependency install failed.\n")
                 self._finish_install(False); return
             _append_log(self._log_text, "\nDependencies installed.\n\n")
+            _append_log(self._log_text, "Validating installation…\n")
+            _validate_install(dest, self._log_text, _step4_after_validation)
+
+        def _step4_after_validation(ok: bool):
+            if not ok:
+                _append_log(self._log_text,
+                    "\nValidation failed — the server may not start correctly.\n"
+                    "Try re-running the installer.\n")
+                self._finish_install(False); return
+            _append_log(self._log_text, "\n")
             if self._install_task_var.get():
                 _append_log(self._log_text, "Creating Task Scheduler task…\n")
                 _create_task_scheduler(
                     dest, self.vals["PORT"].get(),
-                    self._log_text, _step3_after_task)
+                    self._log_text, _step5_after_task)
             else:
-                _step3_after_task(True)
+                _step5_after_task(True)
 
-        def _step3_after_task(ok: bool):
+        def _step5_after_task(ok: bool):
             if self._install_task_var.get():
                 msg = "Task registered: MediaDownloader\n\n" if ok \
                       else "Task Scheduler failed — start manually with run_server.bat.\n\n"
