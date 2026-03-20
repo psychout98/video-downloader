@@ -37,8 +37,9 @@ logger = logging.getLogger(__name__)
 
 
 class MPCStatus:
-    def __init__(self, data: dict):
-        self._d = data
+    def __init__(self, data: dict, reachable: bool = True):
+        self._d       = data
+        self.reachable = reachable
 
     @property
     def file(self) -> str:
@@ -106,17 +107,18 @@ class MPCStatus:
 
     def to_dict(self) -> dict:
         return {
-            "file": self.file,
-            "filename": self.filename,
-            "state": self.state,
-            "is_playing": self.is_playing,
-            "is_paused": self.is_paused,
+            "reachable":   self.reachable,
+            "file":        self.file,
+            "filename":    self.filename,
+            "state":       self.state,
+            "is_playing":  self.is_playing,
+            "is_paused":   self.is_paused,
             "position_ms": self.position_ms,
             "duration_ms": self.duration_ms,
             "position_str": self.position_str,
             "duration_str": self.duration_str,
-            "volume": self.volume,
-            "muted": self.muted,
+            "volume":      self.volume,
+            "muted":       self.muted,
         }
 
 
@@ -129,10 +131,10 @@ class MPCClient:
             async with httpx.AsyncClient(timeout=3) as c:
                 r = await c.get(f"{self._base}/variables.html")
                 r.raise_for_status()
-                return MPCStatus(self._parse_variables(r.text))
+                return MPCStatus(self._parse_variables(r.text), reachable=True)
         except Exception as exc:
-            logger.debug("MPC-BE status failed: %s", exc)
-            return MPCStatus({})
+            logger.debug("MPC-BE unreachable at %s: %s", self._base, exc)
+            return MPCStatus({}, reachable=False)
 
     async def command(self, wm_command: int, **extra_params) -> bool:
         params: dict[str, Any] = {"wm_command": wm_command, **extra_params}

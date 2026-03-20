@@ -16,15 +16,20 @@ async function refreshNP() {
     const r = await fetch('/api/mpc/status');
     if (!r.ok) {
       if (_mpcLaunching) { showNPStarting(); return; }
-      showNPError('Could not reach MPC-BE.');
+      showNPError('Server error checking MPC-BE status.');
       return;
     }
-    npStatus      = await r.json();
-    _mpcLaunching = false;   // successfully connected — clear launching flag
+    npStatus = await r.json();
+    if (!npStatus.reachable) {
+      if (_mpcLaunching) { showNPStarting(); return; }
+      showNPError('MPC-BE web interface unreachable. In MPC-BE: View → Options → Player → Web Interface → enable on port 13579.');
+      return;
+    }
+    _mpcLaunching = false;
     renderNP(npStatus);
   } catch {
     if (_mpcLaunching) { showNPStarting(); return; }
-    showNPError('MPC-BE unreachable — make sure it is running with web interface enabled.');
+    showNPError('Could not reach the media server.');
   }
 }
 

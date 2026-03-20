@@ -64,7 +64,7 @@ async def search(body: SearchRequest, request: Request):
         raise HTTPException(status_code=404, detail=f"TMDB search failed: {exc}")
 
     # 2. Collect streams — only RD-cached results are shown in the UI
-    from ..realdebrid_client import RealDebridClient as _RDC
+    from ..clients.realdebrid_client import RealDebridClient as _RDC
     _rd_check = _RDC(settings.REAL_DEBRID_API_KEY)
     streams = []
 
