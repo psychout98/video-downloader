@@ -40,7 +40,6 @@ class RealDebridClient:
         self._key = api_key
         self._poll_interval = poll_interval
         self._client = httpx.AsyncClient(
-            base_url=RD_BASE,
             headers={"Authorization": f"Bearer {api_key}"},
             timeout=15,
         )
@@ -63,7 +62,7 @@ class RealDebridClient:
         for attempt in range(_MAX_RETRIES):
             try:
                 r = await self._client.get(
-                    f"/torrents/instantAvailability/{info_hash.lower()}"
+                    f"{RD_BASE}/torrents/instantAvailability/{info_hash.lower()}"
                 )
                 r.raise_for_status()
                 data = r.json()
@@ -90,7 +89,7 @@ class RealDebridClient:
 
     async def add_magnet(self, magnet: str) -> str:
         """Add *magnet* to RD and return the RD torrent ID."""
-        r = await self._client.post("/torrents/addMagnet", data={"magnet": magnet})
+        r = await self._client.post(f"{RD_BASE}/torrents/addMagnet", data={"magnet": magnet})
         if r.status_code not in (200, 201):
             raise RealDebridError(f"addMagnet failed ({r.status_code}): {r.text}")
         data = r.json()
@@ -107,7 +106,7 @@ class RealDebridClient:
     async def select_all_files(self, torrent_id: str) -> None:
         """Tell RD to download all files in the torrent."""
         r = await self._client.post(
-            f"/torrents/selectFiles/{torrent_id}",
+            f"{RD_BASE}/torrents/selectFiles/{torrent_id}",
             data={"files": "all"},
         )
         if r.status_code not in (200, 201, 204):
@@ -150,7 +149,7 @@ class RealDebridClient:
             await asyncio.sleep(self._poll_interval)
 
     async def get_torrent_info(self, torrent_id: str) -> dict:
-        r = await self._client.get(f"/torrents/info/{torrent_id}")
+        r = await self._client.get(f"{RD_BASE}/torrents/info/{torrent_id}")
         r.raise_for_status()
         return r.json()
 
@@ -163,7 +162,7 @@ class RealDebridClient:
         Convert an RD link to a direct CDN download URL.
         Returns (download_url, filesize_bytes).
         """
-        r = await self._client.post("/unrestrict/link", data={"link": link})
+        r = await self._client.post(f"{RD_BASE}/unrestrict/link", data={"link": link})
         if r.status_code not in (200, 201):
             raise RealDebridError(f"unrestrict/link failed ({r.status_code}): {r.text}")
         data = r.json()

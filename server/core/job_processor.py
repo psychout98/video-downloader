@@ -366,36 +366,53 @@ class JobProcessor:
         url: str,
         dest: Path,
         total_size: Optional[int],
+        _max_connect_retries: int = 3,
     ) -> None:
         downloaded = 0
         chunk_size = settings.CHUNK_SIZE
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
+        # Retry the initial connection (CDN URLs can fail on first contact)
+        last_exc: Optional[Exception] = None
+        for attempt in range(_max_connect_retries):
+            try:
+                async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+                    async with client.stream("GET", url) as response:
+                        response.raise_for_status()
 
-                cl = response.headers.get("content-length")
-                if cl and cl.isdigit():
-                    total_size = int(cl)
-                    await update_job(job_id, size_bytes=total_size)
+                        cl = response.headers.get("content-length")
+                        if cl and cl.isdigit():
+                            total_size = int(cl)
+                            await update_job(job_id, size_bytes=total_size)
 
-                async with aiofiles.open(dest, "wb") as fh:
-                    async for chunk in response.aiter_bytes(chunk_size):
-                        await fh.write(chunk)
-                        downloaded += len(chunk)
+                        async with aiofiles.open(dest, "wb") as fh:
+                            async for chunk in response.aiter_bytes(chunk_size):
+                                await fh.write(chunk)
+                                downloaded += len(chunk)
 
-                        if total_size and total_size > 0:
-                            pct = 0.3 + (downloaded / total_size) * 0.7
-                        else:
-                            pct = 0.5
+                                if total_size and total_size > 0:
+                                    pct = 0.3 + (downloaded / total_size) * 0.7
+                                else:
+                                    pct = 0.5
 
-                        await update_job(
-                            job_id,
-                            downloaded_bytes=downloaded,
-                            progress=min(pct, 0.99),
-                        )
+                                await update_job(
+                                    job_id,
+                                    downloaded_bytes=downloaded,
+                                    progress=min(pct, 0.99),
+                                )
 
-        await _log(job_id, f"Download complete: {downloaded / 1024**3:.2f} GB")
+                await _log(job_id, f"Download complete: {downloaded / 1024**3:.2f} GB")
+                return  # success
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                last_exc = exc
+                delay = 2 * (2 ** attempt)
+                await _log(
+                    job_id,
+                    f"Download connect failed (attempt {attempt + 1}/{_max_connect_retries}) "
+                    f"— retrying in {delay}s",
+                )
+                await asyncio.sleep(delay)
+
+        raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------

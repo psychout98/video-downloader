@@ -23,7 +23,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-TMDB_BASE = "https://api.themoviedb.org/3"
+TMDB_BASE = "https://api.themoviedb.org/3/"
 
 # Retry config for transient network errors
 _MAX_RETRIES = 3
@@ -94,6 +94,9 @@ class TMDBClient:
         cold-start DNS / TCP failures don't kill the first request after
         server startup.
         """
+        # Strip leading "/" so httpx resolves relative to base_url
+        # (a leading "/" would discard the /3/ path component per RFC 3986)
+        path = path.lstrip("/")
         last_exc: Optional[Exception] = None
         for attempt in range(_MAX_RETRIES):
             try:
