@@ -1,8 +1,8 @@
 """
 Download queue endpoints.
 
-POST /api/search             Search TMDB + torrent sources, return stream options
-POST /api/download           Queue a download (auto-pick OR use pre-selected stream)
+POST /api/search             Search TMDB + Torrentio, return stream options
+POST /api/download           Queue a download using a pre-selected stream
 POST /api/jobs/{id}/retry    Re-queue a failed/cancelled job
 GET  /api/jobs               List all jobs (latest 200)
 GET  /api/jobs/{id}          Get a single job
@@ -20,7 +20,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import state
-from ..auth import check_auth
 from ..database import (
     JobStatus,
     create_job,
@@ -33,6 +32,9 @@ from ..database import (
 router = APIRouter(prefix="/api", tags=["jobs"])
 logger = logging.getLogger(__name__)
 
+# Maximum number of cached search results to keep in memory
+_MAX_SEARCH_CACHE = 50
+
 
 # ── Request models ────────────────────────────────────────────────────────────
 
@@ -40,21 +42,29 @@ class SearchRequest(BaseModel):
     query: str
 
 class DownloadRequest(BaseModel):
-    query:        Optional[str] = None
-    search_id:    Optional[str] = None
-    stream_index: Optional[int] = None
+    search_id:    str
+    stream_index: int
 
 
 # ── Search ────────────────────────────────────────────────────────────────────
 
 @router.post("/search")
-async def search(body: SearchRequest, request: Request):
-    """Search TMDB then collect RD-cached torrent options for the title."""
-    check_auth(request)
+async def search(body: SearchRequest):
+    """Search TMDB then collect torrent options for the title.
+
+    Returns both cached and uncached streams, sorted by cached first
+    then by file size descending. No quality scoring is applied.
+    """
     if not body.query.strip():
         raise HTTPException(status_code=422, detail="query must not be empty")
 
+    # Prune expired searches and enforce size cap
     state.prune_searches()
+    if len(state.searches) >= _MAX_SEARCH_CACHE:
+        # Remove oldest entries
+        oldest = sorted(state.searches.items(), key=lambda kv: kv[1]["expires"])
+        for k, _ in oldest[:len(state.searches) - _MAX_SEARCH_CACHE + 1]:
+            del state.searches[k]
 
     # 1. TMDB metadata lookup
     try:
@@ -62,24 +72,20 @@ async def search(body: SearchRequest, request: Request):
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"TMDB search failed: {exc}")
 
-    # 2. Collect streams — only RD-cached results are shown in the UI
+    # 2. Collect streams from Torrentio (cached first, then all)
     streams = []
     stream_warning: Optional[str] = None
 
     try:
-        if media.is_anime:
-            nyaa_results = await state.nyaa.search(media)
-            for s in nyaa_results:
-                if s.info_hash and await state.rd.is_cached(s.info_hash):
-                    s.is_cached_rd = True
-                    streams.append(s)
-
-        # Torrentio with RD key already filters to cached-only
         cached = await state.torrentio.get_streams(media, cached_only=True)
         streams.extend(cached)
 
+        # If no cached results, also fetch uncached
+        if not cached:
+            all_streams = await state.torrentio.get_streams(media, cached_only=False)
+            streams.extend(all_streams)
+
     except Exception as exc:
-        # Check if this is an HTTP error from Torrentio (e.g. 403 = bad RD key)
         http_resp = getattr(exc, "response", None)
         status_code = getattr(http_resp, "status_code", None)
         if status_code == 403:
@@ -95,12 +101,11 @@ async def search(body: SearchRequest, request: Request):
 
     if not streams and stream_warning is None:
         stream_warning = (
-            f"No RD-cached torrents found for '{media.display_name}'. "
+            f"No torrents found for '{media.display_name}'. "
             "Try a different query or check back later."
         )
 
-    # 3. Score and rank (top 20)
-    ranked = state.scorer.rank(streams)
+    # 3. Build response (already sorted by Torrentio client: cached first, then by size)
     search_id = str(uuid.uuid4())
 
     stream_dicts = [
@@ -112,17 +117,10 @@ async def search(body: SearchRequest, request: Request):
             "size_bytes":  s.size_bytes,
             "seeders":     s.seeders,
             "is_cached_rd": s.is_cached_rd,
-            "quality_str": s.quality_str,
-            "score":       s.score,
-            "resolution":  s.resolution,
-            "source":      s.source,
-            "hdr":         s.hdr,
-            "audio":       s.audio,
-            "channels":    s.channels,
             "magnet":      s.magnet,
             "file_idx":    s.file_idx,
         }
-        for idx, s in enumerate(ranked[:20])
+        for idx, s in enumerate(streams[:20])
     ]
 
     media_dict = {
@@ -157,59 +155,40 @@ async def search(body: SearchRequest, request: Request):
 # ── Download ──────────────────────────────────────────────────────────────────
 
 @router.post("/download", status_code=201)
-async def request_download(body: DownloadRequest, request: Request):
-    """Queue a download.  Either pick a stream by search_id + stream_index,
-    or pass a free-text query for auto-selection (Siri / headless mode)."""
-    check_auth(request)
-
-    # Confirmed stream from UI
-    if body.search_id and body.stream_index is not None:
-        cached = state.searches.get(body.search_id)
-        if not cached:
-            raise HTTPException(
-                status_code=404, detail="Search session expired — please search again"
-            )
-        if body.stream_index >= len(cached["streams"]):
-            raise HTTPException(status_code=422, detail="stream_index out of range")
-
-        stream_d = cached["streams"][body.stream_index]
-        media_d  = cached["media"]
-        title    = media_d.get("title", "Unknown")
-
-        stream_data_json = json.dumps({"media": media_d, "stream": stream_d})
-        job = await create_job(
-            query=f"{title} (user-selected stream #{body.stream_index})",
-            stream_data=stream_data_json,
-        )
-        await update_job(
-            job["id"],
-            title=media_d["title"],
-            year=media_d.get("year"),
-            imdb_id=media_d.get("imdb_id"),
-            type=media_d.get("type"),
-            season=media_d.get("season"),
-            episode=media_d.get("episode"),
-            quality=stream_d.get("quality_str"),
-            torrent_name=stream_d["name"][:120],
-        )
-        logger.info(
-            "New job %s: user picked stream #%d for %r",
-            job["id"][:8], body.stream_index, title,
-        )
-        return {"job_id": job["id"], "status": "pending", "message": f"Queued: {title}"}
-
-    # Auto-pick / headless
-    if not body.query or not body.query.strip():
+async def request_download(body: DownloadRequest):
+    """Queue a download using a pre-selected stream from a search result."""
+    cached = state.searches.get(body.search_id)
+    if not cached:
         raise HTTPException(
-            status_code=422, detail="Provide either 'query' or 'search_id'+'stream_index'"
+            status_code=404, detail="Search session expired — please search again"
         )
-    job = await create_job(body.query.strip())
-    logger.info("New auto job %s: %r", job["id"][:8], body.query)
-    return {
-        "job_id": job["id"],
-        "status": "pending",
-        "message": f"Download queued: {body.query!r}",
-    }
+    if body.stream_index >= len(cached["streams"]):
+        raise HTTPException(status_code=422, detail="stream_index out of range")
+
+    stream_d = cached["streams"][body.stream_index]
+    media_d  = cached["media"]
+    title    = media_d.get("title", "Unknown")
+
+    stream_data_json = json.dumps({"media": media_d, "stream": stream_d})
+    job = await create_job(
+        query=f"{title} (user-selected stream #{body.stream_index})",
+        stream_data=stream_data_json,
+    )
+    await update_job(
+        job["id"],
+        title=media_d["title"],
+        year=media_d.get("year"),
+        imdb_id=media_d.get("imdb_id"),
+        type=media_d.get("type"),
+        season=media_d.get("season"),
+        episode=media_d.get("episode"),
+        torrent_name=stream_d["name"][:120],
+    )
+    logger.info(
+        "New job %s: user picked stream #%d for %r",
+        job["id"][:8], body.stream_index, title,
+    )
+    return {"job_id": job["id"], "status": "pending", "message": f"Queued: {title}"}
 
 
 # ── Job CRUD ──────────────────────────────────────────────────────────────────
@@ -242,8 +221,7 @@ async def cancel_or_delete_job(job_id: str):
 
 
 @router.post("/jobs/{job_id}/retry")
-async def retry_job(job_id: str, request: Request):
-    check_auth(request)
+async def retry_job(job_id: str):
     job = await get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

@@ -1,6 +1,6 @@
 """
 Torrentio client — aggregates torrents from many indexers via the Torrentio
-Stremio addon API, optionally filtered to Real-Debrid cached content only.
+Stremio addon API, including anime sources (replaces separate Nyaa client).
 
 Torrentio URL format
 --------------------
@@ -18,28 +18,34 @@ Stream types:
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
+from dataclasses import dataclass
 from typing import Optional
 
-import httpx
-
-from ..core.quality_scorer import ScoredStream
+from .base_client import BaseAPIClient
 from .tmdb_client import MediaInfo
 
 logger = logging.getLogger(__name__)
 
 TORRENTIO_BASE = "https://torrentio.strem.fun"
 
-# Retry config for transient network errors (ConnectError, timeouts, 5xx)
-_MAX_RETRIES = 3
-_RETRY_BACKOFF = 2          # seconds; doubles each attempt
-_RETRYABLE_STATUS = {502, 503, 504, 520, 521, 522, 524}
-
 # Parse seeder count from Torrentio title strings like "👤 842 💾 52.3 GB"
 _SEEDERS_RE = re.compile(r"👤\s*(\d+)")
 _SIZE_RE = re.compile(r"💾\s*([\d.]+)\s*(GB|MB|TB)", re.I)
+
+
+@dataclass
+class StreamResult:
+    """A torrent/stream result from Torrentio — no quality scoring, just raw data."""
+    name: str                         # raw torrent / stream title
+    info_hash: Optional[str] = None   # hex info hash (for building magnets)
+    download_url: Optional[str] = None  # pre-resolved RD URL (if available)
+    size_bytes: Optional[int] = None
+    seeders: int = 0
+    is_cached_rd: bool = False
+    magnet: Optional[str] = None
+    file_idx: Optional[int] = None
 
 
 def _parse_size(title_text: str) -> Optional[int]:
@@ -57,12 +63,12 @@ def _parse_seeders(title_text: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-class TorrentioClient:
+class TorrentioClient(BaseAPIClient):
     def __init__(self, rd_api_key: str, timeout: int = 20):
-        self._rd_key = rd_api_key
-        self._timeout = timeout
-        self._client = httpx.AsyncClient(
+        super().__init__(
             timeout=timeout,
+            max_retries=3,
+            backoff_base=2.0,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -72,55 +78,7 @@ class TorrentioClient:
                 "Accept": "application/json, */*",
             },
         )
-
-    async def close(self) -> None:
-        await self._client.aclose()
-
-    async def _fetch_with_retry(self, url: str) -> Optional[dict]:
-        """GET *url* with retry + exponential backoff on transient errors.
-
-        Returns the parsed JSON dict on success, or ``None`` if all retries
-        are exhausted.  Re-raises ``httpx.HTTPStatusError`` for non-retryable
-        HTTP errors (e.g. 403) so the caller can surface them to the user.
-        """
-        last_exc: Optional[Exception] = None
-        for attempt in range(_MAX_RETRIES):
-            try:
-                resp = await self._client.get(url)
-                if resp.status_code in _RETRYABLE_STATUS:
-                    raise httpx.HTTPStatusError(
-                        f"Retryable {resp.status_code}",
-                        request=resp.request,
-                        response=resp,
-                    )
-                resp.raise_for_status()
-                return resp.json()
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code not in _RETRYABLE_STATUS:
-                    raise  # 4xx (e.g. 403) — not transient, surface immediately
-                last_exc = exc
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
-                last_exc = exc
-            except Exception as exc:
-                # Unexpected error — log and bail without retry
-                logger.warning(
-                    "Torrentio request failed (%s): %r",
-                    type(exc).__name__, exc,
-                )
-                return None
-
-            delay = _RETRY_BACKOFF * (2 ** attempt)
-            logger.info(
-                "Torrentio attempt %d/%d failed (%s) — retrying in %ds",
-                attempt + 1, _MAX_RETRIES, type(last_exc).__name__, delay,
-            )
-            await asyncio.sleep(delay)
-
-        logger.warning(
-            "Torrentio request failed after %d retries: %r",
-            _MAX_RETRIES, last_exc,
-        )
-        return None
+        self._rd_key = rd_api_key
 
     def _build_url(self, media: MediaInfo, cached_only: bool) -> str:
         if cached_only and self._rd_key:
@@ -140,7 +98,7 @@ class TorrentioClient:
 
     async def get_streams(
         self, media: MediaInfo, cached_only: bool = True
-    ) -> list[ScoredStream]:
+    ) -> list[StreamResult]:
         """
         Fetch streams from Torrentio.
 
@@ -150,8 +108,7 @@ class TorrentioClient:
         If *cached_only* is False we return raw infoHash results that can be
         added to RD manually (slower, but still possible).
 
-        Retries up to ``_MAX_RETRIES`` times on transient network errors
-        (ConnectError, timeouts, 5xx) with exponential backoff.
+        Returns streams sorted by: cached first, then by file size descending.
         """
         if not media.imdb_id:
             logger.warning("No IMDb ID — cannot query Torrentio")
@@ -160,17 +117,20 @@ class TorrentioClient:
         url = self._build_url(media, cached_only)
         logger.debug("Torrentio URL: %s", url)
 
-        data = await self._fetch_with_retry(url)
-        if data is None:
+        try:
+            r = await self.get(url)
+            data = r.json()
+        except Exception as exc:
+            logger.warning("Torrentio request failed: %s", exc)
             return []
 
         streams = data.get("streams", [])
-        results: list[ScoredStream] = []
+        results: list[StreamResult] = []
 
         for s in streams:
             name = s.get("name", "")
             title = s.get("title", "")
-            info_hash = s.get("infoHash") or s.get("infoHashes", [None])[0]
+            info_hash = s.get("infoHash") or (s.get("infoHashes") or [None])[0]
             download_url = s.get("url")   # Only present when RD-filtered
             file_idx = s.get("fileIdx")
 
@@ -186,10 +146,10 @@ class TorrentioClient:
                 magnet = f"magnet:?xt=urn:btih:{info_hash}&{trackers}" if trackers else \
                          f"magnet:?xt=urn:btih:{info_hash}"
 
-            # Combine name + title for quality scoring
+            # Combine name + title for display
             combined = f"{name} {title}"
 
-            stream = ScoredStream(
+            stream = StreamResult(
                 name=combined,
                 info_hash=info_hash,
                 download_url=download_url,
@@ -200,6 +160,9 @@ class TorrentioClient:
                 file_idx=file_idx,
             )
             results.append(stream)
+
+        # Sort: cached first, then by size descending
+        results.sort(key=lambda s: (s.is_cached_rd, s.size_bytes or 0), reverse=True)
 
         logger.info(
             "Torrentio returned %d streams for %s (cached_only=%s)",

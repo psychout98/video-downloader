@@ -6,17 +6,14 @@ Architecture
 - A single JobProcessor instance is created at app startup.
 - A polling loop runs every POLL_INTERVAL seconds and picks up PENDING jobs.
 - Each job is processed with a semaphore (MAX_CONCURRENT_DOWNLOADS).
-- The full pipeline per job:
-    1. TMDB search  -> resolve title / IMDb ID / type
-    2. Torrentio (RD-cached) -> get streams with direct CDN URLs
-       fallback: Torrentio (all) + manual RD add + wait + unrestrict
-       anime bonus: nyaa.si query
-    3. Quality scoring -> pick best stream
-    4. Resolve all RD download URLs (season packs get every episode file)
-    5. Download to staging area (streamed, chunked, with progress)
-    6. Organise into library (Plex-compatible naming)
-    7. Download TMDB poster into the show/movie folder
-    8. Mark COMPLETE
+- Every job requires a pre-selected stream from the UI (no auto-pick).
+- The pipeline per job:
+    1. Deserialize pre-selected stream + media info
+    2. Resolve all RD download URLs (season packs get every episode file)
+    3. Download to staging area (streamed, chunked, with progress)
+    4. Organise into library (Plex-compatible naming)
+    5. Download TMDB poster into the central posters directory
+    6. Mark COMPLETE
 """
 from __future__ import annotations
 
@@ -39,7 +36,7 @@ from ..database import (
     update_job,
 )
 from .media_organizer import MediaOrganizer
-from .quality_scorer import ScoredStream
+from ..clients.torrentio_client import StreamResult
 from ..clients.realdebrid_client import RealDebridError
 from ..clients.tmdb_client import MediaInfo
 
@@ -49,6 +46,9 @@ POLL_INTERVAL = 5   # seconds between queue polls
 
 # Video file extensions used when filtering RD links for season packs
 _VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".m4v"}
+
+# Maximum download time per job (2 hours)
+_MAX_DOWNLOAD_SECONDS = 2 * 60 * 60
 
 
 class JobProcessor:
@@ -62,9 +62,7 @@ class JobProcessor:
         # Reuse the app-level singletons populated by main.lifespan()
         self._tmdb = state.tmdb
         self._torrentio = state.torrentio
-        self._nyaa = state.nyaa
         self._rd = state.rd
-        self._scorer = state.scorer
         self._organizer = MediaOrganizer()
 
     # ------------------------------------------------------------------
@@ -112,15 +110,37 @@ class JobProcessor:
     async def _process(self, job_id: str):
         async with self._sem:
             try:
-                await self._run_pipeline(job_id)
+                await asyncio.wait_for(
+                    self._run_pipeline(job_id),
+                    timeout=_MAX_DOWNLOAD_SECONDS,
+                )
             except asyncio.CancelledError:
                 await update_job(job_id, status=JobStatus.CANCELLED)
                 await _log(job_id, "Job cancelled")
                 logger.info("Job %s cancelled", job_id)
+                await self._cleanup_staging(job_id)
+            except asyncio.TimeoutError:
+                await update_job(job_id, status=JobStatus.FAILED, error="Download timed out")
+                await _log(job_id, "ERROR: Download timed out")
+                await self._cleanup_staging(job_id)
             except Exception as exc:
                 logger.exception("Job %s failed: %s", job_id, exc)
                 await update_job(job_id, status=JobStatus.FAILED, error=str(exc))
                 await _log(job_id, f"ERROR: {exc}")
+                await self._cleanup_staging(job_id)
+
+    async def _cleanup_staging(self, job_id: str):
+        """Remove any partially downloaded files in the staging directory."""
+        staging_dir = Path(settings.DOWNLOADS_DIR)
+        if not staging_dir.exists():
+            return
+        for f in staging_dir.iterdir():
+            if f.is_file() and job_id[:8] in f.name:
+                try:
+                    f.unlink()
+                    logger.info("Cleaned up staging file: %s", f)
+                except Exception:
+                    pass
 
     async def _run_pipeline(self, job_id: str):
         import json as _json
@@ -128,84 +148,9 @@ class JobProcessor:
         if not job:
             return
 
-        query = job["query"]
-        await _log(job_id, f"Starting: {query!r}")
-
-        # Fast path: user pre-selected a stream from the UI
-        if job.get("stream_data"):
-            await self._run_preselected_pipeline(job_id, job)
-            return
-
-        # 1. TMDB search
-        await update_job(job_id, status=JobStatus.SEARCHING)
-        await _log(job_id, "Searching TMDB ...")
-        try:
-            media = await self._tmdb.search(query)
-        except Exception as exc:
-            raise ValueError(f"TMDB search failed: {exc}") from exc
-
-        await update_job(
-            job_id,
-            title=media.title,
-            year=media.year,
-            imdb_id=media.imdb_id,
-            type=media.type,
-            season=media.season,
-            episode=media.episode,
-            status=JobStatus.FOUND,
-        )
-        await _log(job_id, f"Found: {media.display_name} [{media.type}] IMDb={media.imdb_id}")
-
-        # 2. Collect streams
-        streams: list[ScoredStream] = []
-
-        if media.is_anime:
-            await _log(job_id, "Querying nyaa.si ...")
-            nyaa_streams = await self._nyaa.search(media)
-            for s in nyaa_streams:
-                if s.info_hash and await self._rd.is_cached(s.info_hash):
-                    s.is_cached_rd = True
-                    streams.append(s)
-            await _log(job_id, f"nyaa cached: {len(streams)} result(s)")
-
-        await _log(job_id, "Querying Torrentio (RD cache) ...")
-        cached_streams = await self._torrentio.get_streams(media, cached_only=True)
-        streams.extend(cached_streams)
-        await _log(job_id, f"Torrentio cached: {len(cached_streams)} result(s)")
-
-        if not streams:
-            await _log(job_id, "No cached results -- querying Torrentio (all) ...")
-            all_streams = await self._torrentio.get_streams(media, cached_only=False)
-            streams.extend(all_streams)
-            await _log(job_id, f"Torrentio (all): {len(all_streams)} result(s)")
-
-        if not streams:
-            raise ValueError(f"No torrents found for {media.display_name!r}")
-
-        # 3. Score and pick best
-        ranked = self._scorer.rank(streams)
-        best = ranked[0]
-        await _log(
-            job_id,
-            f"Best: {best.name[:80]} | score={best.score} | {best.quality_str}"
-            + (f" | {best.size_bytes // 1024**3:.1f} GB" if best.size_bytes else ""),
-        )
-        await update_job(job_id, quality=best.quality_str, torrent_name=best.name[:120])
-
-        # 4. Resolve download files via RD
-        download_files = await self._resolve_rd_files(job_id, best, media)
-
-        # 5+6+7. Download, organise, save poster
-        staging_dir = Path(settings.DOWNLOADS_DIR)
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        await self._download_and_organize(job_id, download_files, media, best, staging_dir)
-
-    # ------------------------------------------------------------------
-    # Pre-selected stream fast path
-    # ------------------------------------------------------------------
-
-    async def _run_preselected_pipeline(self, job_id: str, job: dict):
-        import json as _json
+        # All jobs must have pre-selected stream data
+        if not job.get("stream_data"):
+            raise ValueError("No stream selected — job requires a pre-selected stream from the UI")
 
         sd = _json.loads(job["stream_data"])
         media_d = sd["media"]
@@ -224,15 +169,13 @@ class JobProcessor:
             poster_path=media_d.get("poster_path"),
         )
 
-        best = ScoredStream(
+        best = StreamResult(
             name=stream_d["name"],
             info_hash=stream_d.get("info_hash"),
             download_url=stream_d.get("download_url"),
             size_bytes=stream_d.get("size_bytes"),
             seeders=stream_d.get("seeders", 0),
             is_cached_rd=stream_d.get("is_cached_rd", False),
-            quality_str=stream_d.get("quality_str", ""),
-            score=stream_d.get("score", 0),
             magnet=stream_d.get("magnet"),
             file_idx=stream_d.get("file_idx"),
         )
@@ -241,24 +184,26 @@ class JobProcessor:
             job_id,
             title=media.title, year=media.year, imdb_id=media.imdb_id,
             type=media.type, season=media.season, episode=media.episode,
-            quality=best.quality_str, torrent_name=best.name[:120],
+            torrent_name=best.name[:120],
             status=JobStatus.FOUND,
         )
-        await _log(job_id, f"Pre-selected stream: {best.name[:80]}")
-        await _log(job_id, f"Quality: {best.quality_str} | Score: {best.score}")
+        await _log(job_id, f"Starting: {media.display_name}")
+        await _log(job_id, f"Stream: {best.name[:80]}")
 
+        # Resolve download files via RD
         download_files = await self._resolve_rd_files(job_id, best, media)
 
+        # Download, organise, save poster
         staging_dir = Path(settings.DOWNLOADS_DIR)
         staging_dir.mkdir(parents=True, exist_ok=True)
-        await self._download_and_organize(job_id, download_files, media, best, staging_dir)
+        await self._download_and_organize(job_id, download_files, media, staging_dir)
 
     # ------------------------------------------------------------------
-    # Shared: resolve RD download URLs
+    # Resolve RD download URLs
     # ------------------------------------------------------------------
 
     async def _resolve_rd_files(
-        self, job_id: str, best: ScoredStream, media: MediaInfo
+        self, job_id: str, best: StreamResult, media: MediaInfo
     ) -> list[tuple[str, Optional[int]]]:
         """
         Return list of (cdn_url, size_bytes) to download.
@@ -309,7 +254,7 @@ class JobProcessor:
             return [unrestricted[0]]
 
     # ------------------------------------------------------------------
-    # Shared: download + organise
+    # Download + organise
     # ------------------------------------------------------------------
 
     async def _download_and_organize(
@@ -317,7 +262,6 @@ class JobProcessor:
         job_id: str,
         files: list[tuple[str, Optional[int]]],
         media: MediaInfo,
-        best: ScoredStream,
         staging_dir: Path,
     ) -> None:
         total_size = sum(s or 0 for _, s in files) or None
@@ -341,7 +285,7 @@ class JobProcessor:
                 ep_media = media
 
             await update_job(job_id, status=JobStatus.ORGANIZING)
-            final_path = self._organizer.organize(staging_path, ep_media, best)
+            final_path = self._organizer.organize(staging_path, ep_media)
             await _log(job_id, f"Organised -> {final_path}")
             last_final_path = final_path
 
@@ -438,32 +382,48 @@ def _is_video_url(url: str) -> bool:
 
 
 def _episode_from_filename(name: str) -> Optional[int]:
-    """Parse episode number from filenames like Show.S01E03.mkv -> 3."""
+    """Parse episode number from filenames.
+
+    Supports multiple patterns:
+      - S01E03
+      - E03 or Ep03
+      - Episode 03
+      - - 03 - (number between dashes, common in anime)
+    """
+    # Standard S##E## pattern
     m = re.search(r"[Ss]\d{1,2}[Ee](\d{1,3})", name)
+    if m:
+        return int(m.group(1))
+    # E## or Ep## pattern
+    m = re.search(r"(?:^|[\s._-])[Ee]p?(\d{1,3})(?:[\s._\-\[]|$)", name)
+    if m:
+        return int(m.group(1))
+    # " - 03 - " pattern (common in anime)
+    m = re.search(r"\s-\s(\d{1,3})\s-\s", name)
+    if m:
+        return int(m.group(1))
+    # " - 03." or " - 03 [" pattern (anime at end)
+    m = re.search(r"\s-\s(\d{1,3})(?:\.\w{3}$|\s*\[)", name)
     if m:
         return int(m.group(1))
     return None
 
 
 async def _save_poster(media: MediaInfo, final_path: Path) -> None:
-    """Download the TMDB poster to the central Posters directory.
-
-    Named after the top-level title folder so it stays separate from video files:
-      Movies   → Posters/Inception (2010).jpg
-      TV/anime → Posters/Breaking Bad.jpg
-    """
+    """Download the TMDB poster to the central data/posters directory."""
     if not media.poster_url:
         return
 
-    # Derive the title folder name (one level up for movies, two for TV/anime)
-    if media.type == "movie":
-        folder_name = final_path.parent.name          # "Inception (2010)"
-    else:
-        folder_name = final_path.parent.parent.name   # "Breaking Bad"
-
     posters_dir = Path(settings.POSTERS_DIR)
     posters_dir.mkdir(parents=True, exist_ok=True)
-    poster_file = posters_dir / f"{folder_name}.jpg"
+
+    # Build the poster key
+    if media.type == "movie":
+        key = f"{media.title} ({media.year})" if media.year else media.title
+    else:
+        key = media.title
+
+    poster_file = posters_dir / f"{_safe_poster_key(key)}.jpg"
 
     if poster_file.exists():
         return
@@ -477,6 +437,11 @@ async def _save_poster(media: MediaInfo, final_path: Path) -> None:
         logger.info("Saved poster -> %s", poster_file)
     except Exception as exc:
         logger.warning("Could not download poster: %s", exc)
+
+
+def _safe_poster_key(s: str) -> str:
+    """Strip characters that are illegal in Windows filenames."""
+    return re.sub(r'[\\/:*?"<>|]', "_", s).strip()
 
 
 async def _log(job_id: str, msg: str) -> None:

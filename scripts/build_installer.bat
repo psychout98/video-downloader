@@ -3,11 +3,6 @@ REM ─────────────────────────�
 REM  Build Media Downloader Installer EXE using PyInstaller
 REM
 REM  Run this on Windows to build locally.
-REM  On macOS, use GitHub Actions instead (see README or the workflow
-REM  at .github/workflows/build-installer.yml):
-REM    1. Push this repo to GitHub
-REM    2. Go to Actions → "Build Windows Installer" → Run workflow
-REM    3. Download MediaDownloader-Setup.exe from the Artifacts section
 REM
 REM  Output:  MediaDownloader-Setup.exe  (in this folder)
 REM ─────────────────────────────────────────────────────────────────
@@ -25,6 +20,7 @@ pyinstaller ^
     --distpath . ^
     --workpath build\_pyinstaller ^
     --add-data "server;server" ^
+    --add-data "tray;tray" ^
     --add-data "run_server.bat;." ^
     --add-data "stop_server.bat;." ^
     --add-data "requirements.txt;." ^

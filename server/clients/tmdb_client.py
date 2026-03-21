@@ -13,21 +13,16 @@ Query parsing examples
 """
 from __future__ import annotations
 
-import asyncio
 import re
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-import httpx
+from .base_client import BaseAPIClient
 
 logger = logging.getLogger(__name__)
 
 TMDB_BASE = "https://api.themoviedb.org/3/"
-
-# Retry config for transient network errors
-_MAX_RETRIES = 3
-_RETRY_BACKOFF = 1  # seconds; doubles each attempt
 
 # Anime detection: TMDB genre id 16 = Animation; we also check origin_country.
 ANIME_KEYWORDS = re.compile(
@@ -58,7 +53,7 @@ class MediaInfo:
     total_seasons: Optional[int] = None
     episodes_in_season: Optional[int] = None   # populated if season is set
     episode_titles: dict[int, str] = field(default_factory=dict)  # {ep_num: title}
-    # Anime flag separate from type so we can use nyaa in addition to Torrentio
+    # Anime flag separate from type so we can still distinguish
     is_anime: bool = False
 
     @property
@@ -78,40 +73,26 @@ class MediaInfo:
         return base
 
 
-class TMDBClient:
+class TMDBClient(BaseAPIClient):
     def __init__(self, api_key: str):
-        self._key = api_key
-        self._client = httpx.AsyncClient(
+        super().__init__(
             base_url=TMDB_BASE,
-            params={"api_key": api_key},
             timeout=15,
+            max_retries=3,
+            backoff_base=1.0,
+            params={"api_key": api_key},
         )
+        self._key = api_key
 
-    async def _get(self, path: str, **kwargs) -> httpx.Response:
-        """Wrap ``self._client.get`` with retry + exponential backoff.
+    async def _get(self, path: str, **kwargs) -> dict:
+        """GET a TMDB endpoint and return parsed JSON.
 
-        Retries on ConnectError, ConnectTimeout, and ReadTimeout so that
-        cold-start DNS / TCP failures don't kill the first request after
-        server startup.
+        Strips leading "/" so httpx resolves relative to base_url
+        (a leading "/" would discard the /3/ path component per RFC 3986).
         """
-        # Strip leading "/" so httpx resolves relative to base_url
-        # (a leading "/" would discard the /3/ path component per RFC 3986)
         path = path.lstrip("/")
-        last_exc: Optional[Exception] = None
-        for attempt in range(_MAX_RETRIES):
-            try:
-                r = await self._client.get(path, **kwargs)
-                r.raise_for_status()
-                return r
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
-                last_exc = exc
-                delay = _RETRY_BACKOFF * (2 ** attempt)
-                logger.info(
-                    "TMDB request %s attempt %d/%d failed (%s) — retrying in %ds",
-                    path, attempt + 1, _MAX_RETRIES, type(exc).__name__, delay,
-                )
-                await asyncio.sleep(delay)
-        raise last_exc  # type: ignore[misc]
+        r = await self.get(path, **kwargs)
+        return r.json()
 
     # ------------------------------------------------------------------
     # Public API
@@ -138,17 +119,18 @@ class TMDBClient:
     async def get_episode_count(self, tmdb_id: int, season: int) -> int:
         """Return the number of episodes in a given TV season."""
         try:
-            r = await self._get(f"/tv/{tmdb_id}/season/{season}")
-            data = r.json()
+            data = await self._get(f"tv/{tmdb_id}/season/{season}")
             return len(data.get("episodes", []))
-        except Exception:
+        except Exception as exc:
+            logger.warning("get_episode_count failed (tmdb=%d, s=%d): %s", tmdb_id, season, exc)
             return 0
 
     async def get_episode_title(self, tmdb_id: int, season: int, episode: int) -> str:
         try:
-            r = await self._get(f"/tv/{tmdb_id}/season/{season}/episode/{episode}")
-            return r.json().get("name", "")
-        except Exception:
+            data = await self._get(f"tv/{tmdb_id}/season/{season}/episode/{episode}")
+            return data.get("name", "")
+        except Exception as exc:
+            logger.warning("get_episode_title failed (tmdb=%d, s=%d, e=%d): %s", tmdb_id, season, episode, exc)
             return ""
 
     async def fuzzy_resolve(
@@ -173,7 +155,7 @@ class TMDBClient:
         so a precise match always wins even if found during a fuzzy pass.
         """
         is_tv     = media_type in ("tv", "anime")
-        endpoint  = "/search/tv" if is_tv else "/search/movie"
+        endpoint  = "search/tv" if is_tv else "search/movie"
         date_key  = "first_air_date_year" if is_tv else "year"
         title_key = "name" if is_tv else "title"
 
@@ -187,19 +169,27 @@ class TMDBClient:
                 item.get("popularity", 0),
             )
 
+        def _extract(best: dict, tkey: str) -> tuple[str, Optional[int], Optional[str]]:
+            ds = best.get("release_date") or best.get("first_air_date") or ""
+            return (
+                best.get(tkey) or title,
+                int(ds[:4]) if ds[:4].isdigit() else year,
+                best.get("poster_path"),
+            )
+
         async def _typed(q: str, with_year: bool) -> list[dict]:
             p: dict = {"query": q, "include_adult": False}
             if with_year and year:
                 p[date_key] = year
-            r = await self._get(endpoint, params=p)
-            return r.json().get("results", [])
+            data = await self._get(endpoint, params=p)
+            return data.get("results", [])
 
         async def _multi(q: str) -> list[dict]:
-            r = await self._get(
-                "/search/multi", params={"query": q, "include_adult": False}
+            data = await self._get(
+                "search/multi", params={"query": q, "include_adult": False}
             )
             return [
-                x for x in r.json().get("results", [])
+                x for x in data.get("results", [])
                 if x.get("media_type") in ("movie", "tv")
             ]
 
@@ -208,12 +198,7 @@ class TMDBClient:
             results = await _typed(title, with_year)
             if results:
                 results.sort(key=_score, reverse=True)
-                best = results[0]
-                return (
-                    best.get(title_key) or title,
-                    int(ds[:4]) if (ds := best.get("release_date") or best.get("first_air_date") or "")[:4].isdigit() else year,
-                    best.get("poster_path"),
-                )
+                return _extract(results[0], title_key)
 
         # Attempt 3 — TMDB multi-search (handles cross-type and fuzzy spelling)
         results = await _multi(title)
@@ -221,12 +206,7 @@ class TMDBClient:
             results.sort(key=_score, reverse=True)
             best  = results[0]
             tkey  = "name" if best.get("media_type") == "tv" else "title"
-            ds    = best.get("release_date") or best.get("first_air_date") or ""
-            return (
-                best.get(tkey) or title,
-                int(ds[:4]) if ds[:4].isdigit() else year,
-                best.get("poster_path"),
-            )
+            return _extract(best, tkey)
 
         # Attempt 4 — progressively shorten the title (handles over-long
         # filenames like "Demon.Slayer.Kimetsu.no.Yaiba.Infinity.Castle.2025")
@@ -238,21 +218,13 @@ class TMDBClient:
                 results.sort(key=_score, reverse=True)
                 best  = results[0]
                 tkey  = "name" if best.get("media_type") == "tv" else "title"
-                ds    = best.get("release_date") or best.get("first_air_date") or ""
                 logger.info(
                     "fuzzy_resolve: matched '%s' via shortened query '%s'",
                     best.get(tkey), shorter,
                 )
-                return (
-                    best.get(tkey) or title,
-                    int(ds[:4]) if ds[:4].isdigit() else year,
-                    best.get("poster_path"),
-                )
+                return _extract(best, tkey)
 
         raise ValueError(f"No TMDB results for '{title}'")
-
-    async def close(self):
-        await self._client.aclose()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -297,8 +269,8 @@ class TMDBClient:
         self, query: str, season: Optional[int], episode: Optional[int]
     ) -> MediaInfo:
         """Use TMDB's /search/multi and pick movie vs TV based on result confidence."""
-        r = await self._get("/search/multi", params={"query": query, "include_adult": False})
-        results = r.json().get("results", [])
+        data = await self._get("search/multi", params={"query": query, "include_adult": False})
+        results = data.get("results", [])
 
         # Filter to movie/tv, sort by popularity
         candidates = [x for x in results if x.get("media_type") in ("movie", "tv")]
@@ -317,8 +289,8 @@ class TMDBClient:
     async def _search_tv(
         self, query: str, season: Optional[int], episode: Optional[int]
     ) -> MediaInfo:
-        r = await self._get("/search/tv", params={"query": query})
-        results = r.json().get("results", [])
+        data = await self._get("search/tv", params={"query": query})
+        results = data.get("results", [])
         if not results:
             raise ValueError(f"No TV show found for '{query}'")
         results.sort(key=lambda x: x.get("popularity", 0), reverse=True)
@@ -327,8 +299,7 @@ class TMDBClient:
     async def _lookup_imdb(
         self, imdb_id: str, season: Optional[int], episode: Optional[int]
     ) -> MediaInfo:
-        r = await self._get("/find/" + imdb_id, params={"external_source": "imdb_id"})
-        data = r.json()
+        data = await self._get("find/" + imdb_id, params={"external_source": "imdb_id"})
         if data.get("movie_results"):
             return await self._build_movie_info(data["movie_results"][0])
         if data.get("tv_results"):
@@ -339,12 +310,11 @@ class TMDBClient:
         tmdb_id = tmdb_result["id"]
 
         # Fetch external IDs for IMDb
-        ext = await self._get(f"/movie/{tmdb_id}/external_ids")
-        imdb_id = ext.json().get("imdb_id", "")
+        ext = await self._get(f"movie/{tmdb_id}/external_ids")
+        imdb_id = ext.get("imdb_id", "")
 
         # Fetch full movie details for genres
-        det = await self._get(f"/movie/{tmdb_id}")
-        details = det.json()
+        details = await self._get(f"movie/{tmdb_id}")
 
         title = details.get("title") or tmdb_result.get("title", "Unknown")
         year_str = (details.get("release_date") or "")[:4]
@@ -371,11 +341,10 @@ class TMDBClient:
     ) -> MediaInfo:
         tmdb_id = tmdb_result["id"]
 
-        ext = await self._get(f"/tv/{tmdb_id}/external_ids")
-        imdb_id = ext.json().get("imdb_id", "")
+        ext = await self._get(f"tv/{tmdb_id}/external_ids")
+        imdb_id = ext.get("imdb_id", "")
 
-        det = await self._get(f"/tv/{tmdb_id}")
-        details = det.json()
+        details = await self._get(f"tv/{tmdb_id}")
 
         title = details.get("name") or tmdb_result.get("name", "Unknown")
         year_str = (details.get("first_air_date") or "")[:4]
@@ -395,13 +364,12 @@ class TMDBClient:
         ep_titles: dict[int, str] = {}
         if season is not None:
             try:
-                s_r = await self._get(f"/tv/{tmdb_id}/season/{season}")
-                s_data = s_r.json()
+                s_data = await self._get(f"tv/{tmdb_id}/season/{season}")
                 episodes = s_data.get("episodes", [])
                 ep_count = len(episodes)
                 ep_titles = {e["episode_number"]: e.get("name", "") for e in episodes}
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("Failed to fetch season %d for tmdb=%d: %s", season, tmdb_id, exc)
 
         return MediaInfo(
             title=title,

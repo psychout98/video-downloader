@@ -1,0 +1,161 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #0f0f13;
+  --color-surface: #1a1a24;
+  --color-accent: #e5a00d;
+  --color-text: #e8e8e8;
+  --color-success: #4caf50;
+  --color-error: #e53935;
+  --color-info: #42a5f5;
+}
+
+* {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-dark-accent text-dark-bg font-semibold rounded hover:opacity-90 transition-opacity;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-dark-surface text-dark-text border border-dark-text/30 font-semibold rounded hover:bg-dark-bg transition-colors;
+  }
+
+  .btn-sm {
+    @apply px-2 py-1 text-sm font-semibold rounded;
+  }
+
+  .btn-sm-primary {
+    @apply btn-sm bg-dark-accent text-dark-bg hover:opacity-90 transition-opacity;
+  }
+
+  .btn-sm-secondary {
+    @apply btn-sm bg-dark-surface text-dark-text border border-dark-text/30 hover:bg-dark-bg transition-colors;
+  }
+
+  .badge {
+    @apply inline-block px-2 py-1 text-xs font-semibold rounded;
+  }
+
+  .badge-accent {
+    @apply badge bg-dark-accent/20 text-dark-accent;
+  }
+
+  .badge-success {
+    @apply badge bg-success/20 text-success;
+  }
+
+  .badge-error {
+    @apply badge bg-error/20 text-error;
+  }
+
+  .badge-info {
+    @apply badge bg-info/20 text-info;
+  }
+
+  .card {
+    @apply bg-dark-surface rounded border border-dark-text/10 p-4;
+  }
+
+  .card-hover {
+    @apply card cursor-pointer hover:bg-dark-surface/80 hover:border-dark-accent/50 transition-all;
+  }
+
+  .input {
+    @apply w-full bg-dark-bg border border-dark-text/30 text-dark-text px-3 py-2 rounded focus:outline-none focus:border-dark-accent transition-colors;
+  }
+
+  .input-sm {
+    @apply input text-sm;
+  }
+
+  .progress-bar {
+    @apply h-2 bg-dark-bg rounded-full overflow-hidden;
+  }
+
+  .progress-fill {
+    @apply h-full bg-dark-accent transition-all;
+  }
+
+  .tab-button {
+    @apply px-4 py-2 text-sm font-semibold transition-all;
+  }
+
+  .tab-button-active {
+    @apply tab-button text-dark-accent border-b-2 border-dark-accent;
+  }
+
+  .tab-button-inactive {
+    @apply tab-button text-dark-text/60 hover:text-dark-text;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 50;
+}
+
+.toast {
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  animation: slideIn 0.3s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.toast-success {
+  background-color: var(--color-success);
+  color: white;
+}
+
+.toast-error {
+  background-color: var(--color-error);
+  color: white;
+}
+
+.toast-info {
+  background-color: var(--color-info);
+  color: white;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}

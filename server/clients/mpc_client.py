@@ -26,6 +26,7 @@ Key command IDs
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any, Optional
@@ -123,6 +124,12 @@ class MPCStatus:
 
 
 class MPCClient:
+    """MPC-BE web interface client.
+
+    Uses short-lived httpx connections because MPC-BE's web server
+    is minimal and doesn't benefit from persistent connections.
+    """
+
     def __init__(self, base_url: str):
         self._base = base_url.rstrip("/")
 
@@ -172,7 +179,7 @@ class MPCClient:
         return await self.command(889, position=position_ms)
 
     async def ping(self) -> bool:
-        """Return True if MPC-BE's web interface is reachable (i.e. the process is running)."""
+        """Return True if MPC-BE's web interface is reachable."""
         try:
             async with httpx.AsyncClient(timeout=2) as c:
                 r = await c.get(f"{self._base}/variables.html")
@@ -207,7 +214,6 @@ class MPCClient:
         stripped = text.strip()
         if stripped.startswith("{"):
             try:
-                import json
                 return json.loads(stripped)
             except Exception:
                 pass

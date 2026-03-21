@@ -5,6 +5,7 @@ from pydantic import Field
 
 # Absolute path to the project .env — two levels up from this file (server/config.py)
 _ENV_FILE = Path(__file__).parent.parent / ".env"
+_DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 def _userprofile(subdir: str) -> str:
@@ -17,9 +18,6 @@ class Settings(BaseSettings):
     TMDB_API_KEY: str = Field(..., description="TMDB v3 API key")
     REAL_DEBRID_API_KEY: str = Field(..., description="Real-Debrid API key")
 
-    # --- Optional webhook auth (set to secure your Siri shortcut endpoint) ---
-    SECRET_KEY: str = Field("change-me", description="Bearer token for webhook auth")
-
     # --- Primary media dirs (fast NVMe — new downloads land here) ---
     MOVIES_DIR: str = Field(default_factory=lambda: _userprofile("Movies"))
     TV_DIR: str = Field(default_factory=lambda: _userprofile("TV Shows"))
@@ -28,12 +26,11 @@ class Settings(BaseSettings):
     # Temporary download staging area
     DOWNLOADS_DIR: str = Field(default_factory=lambda: _userprofile(r"Downloads\.staging"))
 
-    # Central poster cache — all poster.jpg files live here, named after their title folder
-    # e.g. %USERPROFILE%\Media\Posters\Inception (2010).jpg
-    POSTERS_DIR: str = Field(default_factory=lambda: _userprofile("Posters"))
+    # Central poster cache — inside the data/ folder
+    POSTERS_DIR: str = Field(default_factory=lambda: str(_DATA_DIR / "posters"))
 
-    # Per-file watch-progress database (JSON)
-    PROGRESS_FILE: str = Field(default_factory=lambda: _userprofile("progress.json"))
+    # Per-file watch-progress database (JSON) — inside the data/ folder
+    PROGRESS_FILE: str = Field(default_factory=lambda: str(_DATA_DIR / "playback.json"))
 
     # --- Archive media dirs (SATA — watched content is moved here) ---
     MOVIES_DIR_ARCHIVE: str = Field("D:\\Media\\Movies")
@@ -70,15 +67,9 @@ settings = Settings()
 
 
 def reload_settings() -> None:
-    """Re-read the .env file and update the module-level settings object in-place.
-
-    Called by the settings router after persisting changes so that the new
-    values take effect immediately without a full server restart.
-    """
+    """Re-read the .env file and update the module-level settings object in-place."""
     import logging
     new = Settings()
-    # Update __dict__ directly — pydantic v2 stores field values there and
-    # this is more reliable than object.__setattr__ in a loop.
     settings.__dict__.update(new.__dict__)
     logging.getLogger(__name__).info(
         "Settings reloaded — REAL_DEBRID_API_KEY ends with …%s",

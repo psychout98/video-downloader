@@ -6,20 +6,21 @@ Endpoints are split into focused router modules under server/routers/:
   library.py   — /api/library*, /api/progress
   mpc.py       — /api/mpc/*
   settings.py  — /api/settings
-  system.py    — /api/status, /api/logs, /api/shutdown
+  system.py    — /api/status, /api/logs
 
 External API wrappers live in server/clients/:
-  mpc_client, nyaa_client, realdebrid_client, tmdb_client, torrentio_client
+  mpc_client, realdebrid_client, tmdb_client, torrentio_client
 
 Business logic lives in server/core/:
-  job_processor, library_scanner, media_organizer,
-  progress_store, quality_scorer, watch_tracker
+  job_processor, library_manager, media_organizer,
+  progress_store, watch_tracker
 
 App-level singleton instances live in server/state.py and are populated
 during lifespan() before the first request arrives.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import sys
@@ -36,14 +37,12 @@ from . import state
 from .config import settings
 from .database import init_db
 from .clients.mpc_client import MPCClient
-from .clients.nyaa_client import NyaaClient
 from .clients.realdebrid_client import RealDebridClient
 from .clients.tmdb_client import TMDBClient
 from .clients.torrentio_client import TorrentioClient
 from .core.job_processor import JobProcessor
-from .core.library_scanner import LibraryScanner
+from .core.library_manager import LibraryManager
 from .core.progress_store import ProgressStore
-from .core.quality_scorer import QualityScorer
 from .core.watch_tracker import WatchTracker
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -78,25 +77,26 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Could not write PID file: %s", exc)
 
+    # Ensure data directory exists
+    state.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     logger.info("Media Downloader starting …")
     await init_db()
 
     # Populate shared singletons so routers can use them
     state.tmdb           = TMDBClient(settings.TMDB_API_KEY)
     state.torrentio      = TorrentioClient(settings.REAL_DEBRID_API_KEY)
-    state.nyaa           = NyaaClient()
     state.rd             = RealDebridClient(settings.REAL_DEBRID_API_KEY, poll_interval=settings.RD_POLL_INTERVAL)
-    state.scorer         = QualityScorer()
-    state.library        = LibraryScanner(
-        settings.MOVIES_DIR,         settings.TV_DIR,         settings.ANIME_DIR,
-        settings.MOVIES_DIR_ARCHIVE, settings.TV_DIR_ARCHIVE, settings.ANIME_DIR_ARCHIVE,
-    )
+    state.library        = LibraryManager()
     state.mpc            = MPCClient(settings.MPC_BE_URL)
     state.progress_store = ProgressStore(settings.PROGRESS_FILE)
     state.processor      = JobProcessor()
     state.processor.start()
     state.watch_tracker  = WatchTracker(state.mpc, state.progress_store)
     state.watch_tracker.start()
+
+    # Auto-refresh library on startup (background task)
+    asyncio.create_task(_startup_library_refresh())
 
     yield   # ← server is live
 
@@ -105,7 +105,6 @@ async def lifespan(app: FastAPI):
     if state.tmdb:           await state.tmdb.close()
     if state.torrentio:      await state.torrentio.close()
     if state.rd:             await state.rd.close()
-    if state.nyaa:           await state.nyaa.close()
 
     logger.info("Media Downloader stopped")
 
@@ -119,9 +118,19 @@ async def lifespan(app: FastAPI):
         _file_log_handler.close()
 
 
+async def _startup_library_refresh():
+    """Run library scan + smart refresh in background on startup."""
+    try:
+        # Initial scan (fast, no TMDB calls)
+        state.library.scan(force=True)
+        logger.info("Startup library scan complete")
+    except Exception as exc:
+        logger.warning("Startup library scan failed: %s", exc)
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Media Downloader", version="1.2.0", lifespan=lifespan)
+app = FastAPI(title="Media Downloader", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -146,12 +155,31 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 
 @app.get("/", include_in_schema=False)
-async def ui():
-    return FileResponse(STATIC_DIR / "index.html")
+async def ui_root():
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return JSONResponse({"detail": "Frontend not built. Run: cd frontend && npm run build"}, status_code=503)
 
 
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+
+
+# SPA fallback: serve index.html for any unmatched non-API route
+@app.get("/{path:path}", include_in_schema=False)
+async def spa_fallback(path: str):
+    if path.startswith("api/"):
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    # Serve static file if it exists
+    static_file = STATIC_DIR / path
+    if static_file.exists() and static_file.is_file():
+        return FileResponse(static_file)
+    # Otherwise serve index.html for client-side routing
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return JSONResponse({"detail": "Not found"}, status_code=404)
 
 
 # ── Fallback error handler ────────────────────────────────────────────────────

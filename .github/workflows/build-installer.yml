@@ -12,6 +12,8 @@ on:
       - 'run_server.bat'
       - 'stop_server.bat'
       - 'server/**'
+      - 'tray/**'
+      - 'frontend/**'
       - '.github/workflows/build-installer.yml'
 
 jobs:
@@ -22,6 +24,23 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      # ── Frontend build ───────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # ── Installer build ──────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -39,6 +58,7 @@ jobs:
             --distpath . `
             --workpath build\_pyinstaller `
             --add-data "server;server" `
+            --add-data "tray;tray" `
             --add-data "run_server.bat;." `
             --add-data "stop_server.bat;." `
             --add-data "requirements.txt;." `

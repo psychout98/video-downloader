@@ -15,18 +15,17 @@ ROOT_DIR: Path = Path(__file__).parent.parent   # project root
 ENV_FILE: Path = ROOT_DIR / ".env"
 PID_FILE: Path = ROOT_DIR / "server.pid"
 LOG_FILE: Path = ROOT_DIR / "logs" / "server.log"
+DATA_DIR: Path = ROOT_DIR / "data"
 
 # ── Service singletons ────────────────────────────────────────────────────────
-processor    = None   # JobProcessor
-tmdb         = None   # TMDBClient
-torrentio    = None   # TorrentioClient
-nyaa         = None   # NyaaClient
-rd           = None   # RealDebridClient
-scorer       = None   # QualityScorer
-library      = None   # LibraryScanner
-mpc          = None   # MPCClient
-watch_tracker  = None # WatchTracker
-progress_store = None # ProgressStore
+processor      = None   # JobProcessor
+tmdb           = None   # TMDBClient
+torrentio      = None   # TorrentioClient
+rd             = None   # RealDebridClient
+library        = None   # LibraryManager
+mpc            = None   # MPCClient
+watch_tracker  = None   # WatchTracker
+progress_store = None   # ProgressStore
 
 # ── In-memory search cache ────────────────────────────────────────────────────
 # { search_id: {"media": dict, "streams": list, "expires": float} }

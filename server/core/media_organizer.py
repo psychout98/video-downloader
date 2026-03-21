@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import settings
-from .quality_scorer import ScoredStream
 from ..clients.tmdb_client import MediaInfo
 
 logger = logging.getLogger(__name__)
@@ -77,7 +76,7 @@ class MediaOrganizer:
     # Main entry point
     # ------------------------------------------------------------------
 
-    def organize(self, source: Path, media: MediaInfo, stream: ScoredStream) -> Path:
+    def organize(self, source: Path, media: MediaInfo) -> Path:
         """
         Move *source* (a file or directory) to the appropriate library location.
         Returns the final file path.
@@ -90,7 +89,7 @@ class MediaOrganizer:
         else:
             video_file = source
 
-        dest = self._destination(video_file, media, stream)
+        dest = self._destination(video_file, media)
         dest.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Moving %s → %s", video_file, dest)
@@ -105,11 +104,8 @@ class MediaOrganizer:
 
         return dest
 
-    def _destination(
-        self, video_file: Path, media: MediaInfo, stream: ScoredStream
-    ) -> Path:
+    def _destination(self, video_file: Path, media: MediaInfo) -> Path:
         ext = video_file.suffix.lower() or ".mkv"
-        quality_tag = f" [{stream.quality_str}]" if stream.quality_str else ""
         base = self._base_dir(media)
 
         if media.type == "movie":
@@ -117,9 +113,9 @@ class MediaOrganizer:
                 f"{media.title} ({media.year})" if media.year else media.title
             )
             file_name = _sanitize(
-                f"{media.title} ({media.year}){quality_tag}{ext}"
+                f"{media.title} ({media.year}){ext}"
                 if media.year
-                else f"{media.title}{quality_tag}{ext}"
+                else f"{media.title}{ext}"
             )
             return base / folder_name / file_name
 
@@ -135,10 +131,10 @@ class MediaOrganizer:
             )
             file_name = _sanitize(
                 f"{media.title} - S{season_num:02d}E{media.episode:02d}"
-                f"{ep_suffix}{quality_tag}{ext}"
+                f"{ep_suffix}{ext}"
             )
         else:
             # Season pack — keep original filename but place in correct folder
-            file_name = _sanitize(video_file.stem + quality_tag + ext)
+            file_name = _sanitize(video_file.stem + ext)
 
         return base / show_dir / season_dir / file_name

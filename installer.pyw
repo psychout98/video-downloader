@@ -6,12 +6,13 @@ Compile to .exe with:  build_installer.bat
 
 When compiled with PyInstaller (--add-data flags), the EXE bundles the entire
 project inside it.  The user chooses an install location; the installer extracts
-the files there, writes .env, runs pip, and registers a Task Scheduler task.
+the files there, writes .env, runs pip, and optionally registers a Task Scheduler
+task to auto-start the tray app.
 
 Wizard pages
 ------------
 1. Welcome     (choose install location)
-2. API Keys    (TMDB, Real-Debrid, optional webhook secret)
+2. API Keys    (TMDB, Real-Debrid)
 3. Directories (primary NVMe + archive SATA paths)
 4. Playback    (MPC-BE exe path, watch threshold)
 5. Install     (extract files, write .env, pip install, Task Scheduler)
@@ -50,6 +51,7 @@ def _bundled_root() -> Path:
 # Each entry: (relative path inside bundle, relative path inside install dir)
 _BUNDLE_ITEMS = [
     ("server",           "server"),
+    ("tray",             "tray"),
     ("run_server.bat",   "run_server.bat"),
     ("stop_server.bat",  "stop_server.bat"),
     ("requirements.txt", "requirements.txt"),
@@ -86,7 +88,6 @@ def _extract_files(dest: Path, log_fn):
 DEFAULTS = {
     "TMDB_API_KEY":             "",
     "REAL_DEBRID_API_KEY":      "",
-    "SECRET_KEY":               "change-me",
     "MOVIES_DIR":               str(Path.home() / "Media" / "Movies"),
     "TV_DIR":                   str(Path.home() / "Media" / "TV Shows"),
     "ANIME_DIR":                str(Path.home() / "Media" / "Anime"),
@@ -272,11 +273,8 @@ def _append_log(widget, text):
 
 # ── Task Scheduler ────────────────────────────────────────────────────────────
 def _create_task_scheduler(root: Path, port: str, log_widget, done_callback):
-    vbs_path = root / "silent_launch.vbs"
-    _write_vbs_launcher(root)   # always regenerate with correct paths
-
     xml_path = root / "task_def.xml"
-    _write_task_xml(root, xml_path, str(vbs_path))
+    _write_task_xml(root, xml_path)
 
     cmd = ["schtasks", "/Create", "/TN", "MediaDownloader", "/XML", str(xml_path), "/F"]
 
@@ -299,20 +297,11 @@ def _create_task_scheduler(root: Path, port: str, log_widget, done_callback):
     threading.Thread(target=_run, daemon=True).start()
 
 
-def _write_vbs_launcher(root: Path):
-    run_bat = root / "run_server.bat"
-    content = (
-        "' Silent launcher — runs run_server.bat without a console window\n"
-        "Set sh = CreateObject(\"WScript.Shell\")\n"
-        f"sh.Run \"cmd /c \\\"{run_bat}\\\"\", 0, False\n"
-    )
-    with open(root / "silent_launch.vbs", "w", encoding="utf-8") as f:
-        f.write(content)
-
-
-def _write_task_xml(root: Path, xml_path: Path, vbs_path: str):
+def _write_task_xml(root: Path, xml_path: Path):
     def _esc(s):
         return s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+    venv_python = root / ".venv" / "Scripts" / "pythonw.exe"
+    tray_script = root / "tray" / "tray_app.py"
     xml = f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>
@@ -330,8 +319,8 @@ def _write_task_xml(root: Path, xml_path: Path, vbs_path: str):
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>wscript.exe</Command>
-      <Arguments>//nologo "{_esc(vbs_path)}"</Arguments>
+      <Command>{_esc(str(venv_python))}</Command>
+      <Arguments>"{_esc(str(tray_script))}"</Arguments>
       <WorkingDirectory>{_esc(str(root))}</WorkingDirectory>
     </Exec>
   </Actions>
@@ -714,11 +703,10 @@ class InstallerApp(tk.Tk):
             run_cmd(["schtasks", "/end", "/tn", "MediaDownloader"])
             _append_log(log, "  Done\n")
 
-            # Kill any python/wscript processes launched from this install dir
+            # Kill any python processes launched from this install dir
             _append_log(log, "Terminating server process…\n")
             venv_py = str(dest / ".venv" / "Scripts" / "python.exe")
-            vbs     = str(dest / "silent_launch.vbs")
-            for path_fragment in [venv_py, vbs]:
+            for path_fragment in [venv_py]:
                 try:
                     subprocess.run(
                         ["taskkill", "/f", "/fi",
@@ -786,13 +774,6 @@ class InstallerApp(tk.Tk):
         tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=10)
         self._field(p, "TMDB API Key *",       self.vals["TMDB_API_KEY"],        password=True)
         self._field(p, "Real-Debrid Key *",    self.vals["REAL_DEBRID_API_KEY"], password=True)
-        tk.Frame(p, bg=BORDER, height=1).pack(fill="x", pady=10)
-        self._lbl(p, "Webhook Security (optional)")
-        self._field(p, "Secret Key",            self.vals["SECRET_KEY"])
-        tk.Label(p, bg=BG, fg=MUTED, font=FONT_LABEL, justify="left",
-                 text="Set a strong random string to secure the Siri shortcut endpoint. "
-                      "Leave as 'change-me' to disable auth."
-                 ).pack(anchor="w", pady=(4, 0))
         return p
 
     # ── Page 2: Directories ───────────────────────────────────────────────────
@@ -1026,8 +1007,8 @@ class InstallerApp(tk.Tk):
 
         def _step5_after_task(ok: bool):
             if self._install_task_var.get():
-                msg = "Task registered: MediaDownloader\n\n" if ok \
-                      else "Task Scheduler failed — start manually with run_server.bat.\n\n"
+                msg = "Task registered: MediaDownloader (tray app)\n\n" if ok \
+                      else "Task Scheduler failed — start manually with tray/tray_app.py.\n\n"
                 _append_log(self._log_text, msg)
             self._finish_install(True)
 
@@ -1038,14 +1019,14 @@ class InstallerApp(tk.Tk):
         dest = Path(self.install_var.get())
         if ok:
             if IS_WINDOWS:
-                auto = ("auto-starts at login (Task Scheduler task registered)."
+                auto = ("tray app auto-starts at login (Task Scheduler task registered)."
                         if self._install_task_var.get()
-                        else "run run_server.bat to start the server.")
+                        else "run tray/tray_app.py to start the server.")
             else:
-                auto = "run run_server.bat on Windows to start the server."
+                auto = "run tray/tray_app.py on Windows to start the server."
             self._done_msg.configure(
                 text=f"Installed to:\n{dest}\n\n"
-                     f"Server {auto}\n\n"
+                     f"The {auto}\n\n"
                      f"Then open http://localhost:{port} in a browser.",
                 fg=MUTED)
             self._done_icon.configure(text="✓", fg=SUCCESS)
