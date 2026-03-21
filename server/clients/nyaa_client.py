@@ -14,6 +14,7 @@ We query both and merge results.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Optional
@@ -27,6 +28,9 @@ from .tmdb_client import MediaInfo
 logger = logging.getLogger(__name__)
 
 NYAA_RSS = "https://nyaa.si/?page=rss"
+
+_MAX_RETRIES = 2
+_RETRY_BACKOFF = 2
 _NS = {"nyaa": "https://nyaa.si/xmlns/nyaa"}
 
 _SIZE_RE = re.compile(r"([\d.]+)\s*(GiB|MiB|TiB|GB|MB|TB)", re.I)
@@ -75,16 +79,31 @@ class NyaaClient:
 
     async def _fetch_rss(self, query: str, category: str) -> list[ScoredStream]:
         url = f"{NYAA_RSS}&q={query}&c={category}&f=0"
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                raw_xml = resp.text
-        except Exception as exc:
-            logger.warning("nyaa RSS fetch failed (cat=%s): %s", category, exc)
-            return []
+        last_exc: Optional[Exception] = None
 
-        return self._parse_rss(raw_xml)
+        for attempt in range(_MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.get(url)
+                    resp.raise_for_status()
+                    return self._parse_rss(resp.text)
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                last_exc = exc
+                delay = _RETRY_BACKOFF * (2 ** attempt)
+                logger.info(
+                    "nyaa RSS attempt %d/%d failed (cat=%s, %s) — retrying in %ds",
+                    attempt + 1, _MAX_RETRIES, category, type(exc).__name__, delay,
+                )
+                await asyncio.sleep(delay)
+            except Exception as exc:
+                logger.warning("nyaa RSS fetch failed (cat=%s): %s", category, exc)
+                return []
+
+        logger.warning(
+            "nyaa RSS fetch failed after %d retries (cat=%s): %s",
+            _MAX_RETRIES, category, last_exc,
+        )
+        return []
 
     def _parse_rss(self, xml_text: str) -> list[ScoredStream]:
         results: list[ScoredStream] = []
@@ -140,9 +159,8 @@ class NyaaClient:
                 size_bytes=size_bytes,
                 seeders=seeders,
                 is_cached_rd=False,
+                magnet=magnet,
             )
-            stream._magnet = magnet  # type: ignore[attr-defined]
-            stream._file_idx = None  # type: ignore[attr-defined]
             results.append(stream)
 
         return results

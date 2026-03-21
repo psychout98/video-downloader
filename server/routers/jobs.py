@@ -123,8 +123,8 @@ async def search(body: SearchRequest, request: Request):
             "hdr":         s.hdr,
             "audio":       s.audio,
             "channels":    s.channels,
-            "magnet":      getattr(s, "_magnet", None),
-            "file_idx":    getattr(s, "_file_idx", None),
+            "magnet":      s.magnet,
+            "file_idx":    s.file_idx,
         }
         for idx, s in enumerate(ranked[:20])
     ]

@@ -18,6 +18,7 @@ Stream types:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Optional
@@ -30,6 +31,11 @@ from .tmdb_client import MediaInfo
 logger = logging.getLogger(__name__)
 
 TORRENTIO_BASE = "https://torrentio.strem.fun"
+
+# Retry config for transient network errors (ConnectError, timeouts, 5xx)
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 2          # seconds; doubles each attempt
+_RETRYABLE_STATUS = {502, 503, 504, 520, 521, 522, 524}
 
 # Parse seeder count from Torrentio title strings like "👤 842 💾 52.3 GB"
 _SEEDERS_RE = re.compile(r"👤\s*(\d+)")
@@ -55,6 +61,62 @@ class TorrentioClient:
     def __init__(self, rd_api_key: str, timeout: int = 20):
         self._rd_key = rd_api_key
         self._timeout = timeout
+
+    _HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, */*",
+    }
+
+    async def _fetch_with_retry(self, url: str) -> Optional[dict]:
+        """GET *url* with retry + exponential backoff on transient errors.
+
+        Returns the parsed JSON dict on success, or ``None`` if all retries
+        are exhausted.  Re-raises ``httpx.HTTPStatusError`` for non-retryable
+        HTTP errors (e.g. 403) so the caller can surface them to the user.
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                    resp = await client.get(url, headers=self._HEADERS)
+                    if resp.status_code in _RETRYABLE_STATUS:
+                        raise httpx.HTTPStatusError(
+                            f"Retryable {resp.status_code}",
+                            request=resp.request,
+                            response=resp,
+                        )
+                    resp.raise_for_status()
+                    return resp.json()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in _RETRYABLE_STATUS:
+                    raise  # 4xx (e.g. 403) — not transient, surface immediately
+                last_exc = exc
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                last_exc = exc
+            except Exception as exc:
+                # Unexpected error — log and bail without retry
+                logger.warning(
+                    "Torrentio request failed (%s): %r",
+                    type(exc).__name__, exc,
+                )
+                return None
+
+            delay = _RETRY_BACKOFF * (2 ** attempt)
+            logger.info(
+                "Torrentio attempt %d/%d failed (%s) — retrying in %ds",
+                attempt + 1, _MAX_RETRIES, type(last_exc).__name__, delay,
+            )
+            await asyncio.sleep(delay)
+
+        logger.warning(
+            "Torrentio request failed after %d retries: %r",
+            _MAX_RETRIES, last_exc,
+        )
+        return None
 
     def _build_url(self, media: MediaInfo, cached_only: bool) -> str:
         if cached_only and self._rd_key:
@@ -83,6 +145,9 @@ class TorrentioClient:
 
         If *cached_only* is False we return raw infoHash results that can be
         added to RD manually (slower, but still possible).
+
+        Retries up to ``_MAX_RETRIES`` times on transient network errors
+        (ConnectError, timeouts, 5xx) with exponential backoff.
         """
         if not media.imdb_id:
             logger.warning("No IMDb ID — cannot query Torrentio")
@@ -91,25 +156,8 @@ class TorrentioClient:
         url = self._build_url(media, cached_only)
         logger.debug("Torrentio URL: %s", url)
 
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, */*",
-        }
-        try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                resp = await client.get(url, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-        except httpx.HTTPStatusError:
-            # HTTP 4xx/5xx — re-raise so the caller can show a meaningful error
-            # (e.g. 403 means the Real-Debrid API key is invalid or expired)
-            raise
-        except Exception as exc:
-            logger.warning("Torrentio request failed (%s): %r", type(exc).__name__, exc)
+        data = await self._fetch_with_retry(url)
+        if data is None:
             return []
 
         streams = data.get("streams", [])
@@ -144,10 +192,9 @@ class TorrentioClient:
                 size_bytes=_parse_size(title),
                 seeders=_parse_seeders(title),
                 is_cached_rd=bool(download_url),
+                magnet=magnet,
+                file_idx=file_idx,
             )
-            # Attach the magnet as a custom attribute for the RD client
-            stream._magnet = magnet  # type: ignore[attr-defined]
-            stream._file_idx = file_idx  # type: ignore[attr-defined]
             results.append(stream)
 
         logger.info(

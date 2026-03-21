@@ -21,6 +21,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+_MAX_RETRIES = 2
+_RETRY_BACKOFF = 2
+
 RD_BASE = "https://api.real-debrid.com/rest/1.0"
 
 # Torrent statuses considered "done" on RD's side
@@ -43,19 +46,36 @@ class RealDebridClient:
     # ------------------------------------------------------------------
 
     async def is_cached(self, info_hash: str) -> bool:
-        """Return True if the torrent hash is instantly available on RD."""
+        """Return True if the torrent hash is instantly available on RD.
+
+        Retries on transient connection errors so a single network hiccup
+        doesn't cause every hash to look uncached.
+        """
         url = f"{RD_BASE}/torrents/instantAvailability/{info_hash.lower()}"
-        try:
-            async with httpx.AsyncClient(headers=self._headers, timeout=10) as c:
-                r = await c.get(url)
-                r.raise_for_status()
-                data = r.json()
-                # Response: { hash: { rd: [ {file_id: ...}, ... ] } }
-                entry = data.get(info_hash.lower(), {})
-                return bool(entry.get("rd"))
-        except Exception as exc:
-            logger.warning("RD cache check failed: %s", exc)
-            return False
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(_MAX_RETRIES):
+            try:
+                async with httpx.AsyncClient(headers=self._headers, timeout=10) as c:
+                    r = await c.get(url)
+                    r.raise_for_status()
+                    data = r.json()
+                    entry = data.get(info_hash.lower(), {})
+                    return bool(entry.get("rd"))
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                last_exc = exc
+                delay = _RETRY_BACKOFF * (2 ** attempt)
+                logger.info(
+                    "RD cache check attempt %d/%d failed (%s) — retrying in %ds",
+                    attempt + 1, _MAX_RETRIES, type(exc).__name__, delay,
+                )
+                await asyncio.sleep(delay)
+            except Exception as exc:
+                logger.warning("RD cache check failed: %s", exc)
+                return False
+
+        logger.warning("RD cache check failed after %d retries: %s", _MAX_RETRIES, last_exc)
+        return False
 
     # ------------------------------------------------------------------
     # Add magnet
@@ -161,16 +181,17 @@ class RealDebridClient:
 
     async def download_magnet(
         self, magnet: str, on_progress=None
-    ) -> list[tuple[str, Optional[int]]]:
+    ) -> tuple[list[tuple[str, Optional[int]]], str]:
         """
         Full pipeline for a non-cached magnet:
           1. Add to RD
           2. Select all files
           3. Poll until downloaded
           4. Unrestrict all links
-        Returns list of (cdn_url, file_size_bytes).
+        Returns (list_of_(cdn_url, file_size_bytes), torrent_id).
         """
         torrent_id = await self.add_magnet(magnet)
         await self.select_all_files(torrent_id)
         rd_links = await self.wait_until_downloaded(torrent_id, on_progress=on_progress)
-        return await self.unrestrict_all(rd_links), torrent_id
+        unrestricted = await self.unrestrict_all(rd_links)
+        return unrestricted, torrent_id

@@ -234,9 +234,9 @@ class JobProcessor:
             is_cached_rd=stream_d.get("is_cached_rd", False),
             quality_str=stream_d.get("quality_str", ""),
             score=stream_d.get("score", 0),
+            magnet=stream_d.get("magnet"),
+            file_idx=stream_d.get("file_idx"),
         )
-        best._magnet = stream_d.get("magnet")  # type: ignore[attr-defined]
-        best._file_idx = stream_d.get("file_idx")  # type: ignore[attr-defined]
 
         await update_job(
             job_id,
@@ -273,7 +273,7 @@ class JobProcessor:
             return [(best.download_url, best.size_bytes)]
 
         # Go through RD API to get all file links
-        magnet = getattr(best, "_magnet", None)
+        magnet = best.magnet
         if not magnet and best.info_hash:
             magnet = f"magnet:?xt=urn:btih:{best.info_hash}"
         if not magnet:

@@ -95,6 +95,10 @@ class ScoredStream:
     score: int = 0
     quality_str: str = ""    # human-readable quality label e.g. "4K DV Atmos"
 
+    # Magnet link + file index (set by Torrentio / Nyaa clients)
+    magnet: Optional[str] = None
+    file_idx: Optional[int] = None
+
     # Seeder bonus (applied after main score)
     _seeder_bonus: int = field(default=0, repr=False)
 
