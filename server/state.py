@@ -21,6 +21,7 @@ processor    = None   # JobProcessor
 tmdb         = None   # TMDBClient
 torrentio    = None   # TorrentioClient
 nyaa         = None   # NyaaClient
+rd           = None   # RealDebridClient
 scorer       = None   # QualityScorer
 library      = None   # LibraryScanner
 mpc          = None   # MPCClient

@@ -21,7 +21,6 @@ from pydantic import BaseModel
 
 from .. import state
 from ..auth import check_auth
-from ..config import settings
 from ..database import (
     JobStatus,
     create_job,
@@ -68,13 +67,10 @@ async def search(body: SearchRequest, request: Request):
     stream_warning: Optional[str] = None
 
     try:
-        from ..clients.realdebrid_client import RealDebridClient as _RDC
-        _rd_check = _RDC(settings.REAL_DEBRID_API_KEY)
-
         if media.is_anime:
             nyaa_results = await state.nyaa.search(media)
             for s in nyaa_results:
-                if s.info_hash and await _rd_check.is_cached(s.info_hash):
+                if s.info_hash and await state.rd.is_cached(s.info_hash):
                     s.is_cached_rd = True
                     streams.append(s)
 

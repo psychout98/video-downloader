@@ -39,11 +39,9 @@ from ..database import (
     update_job,
 )
 from .media_organizer import MediaOrganizer
-from ..clients.nyaa_client import NyaaClient
-from .quality_scorer import QualityScorer, ScoredStream
-from ..clients.realdebrid_client import RealDebridClient, RealDebridError
-from ..clients.tmdb_client import MediaInfo, TMDBClient
-from ..clients.torrentio_client import TorrentioClient
+from .quality_scorer import ScoredStream
+from ..clients.realdebrid_client import RealDebridError
+from ..clients.tmdb_client import MediaInfo
 
 logger = logging.getLogger(__name__)
 
@@ -55,17 +53,18 @@ _VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".m4v"}
 
 class JobProcessor:
     def __init__(self):
+        from .. import state
+
         self._sem = asyncio.Semaphore(settings.MAX_CONCURRENT_DOWNLOADS)
         self._active: dict[str, asyncio.Task] = {}
         self._running = False
 
-        self._tmdb = TMDBClient(settings.TMDB_API_KEY)
-        self._torrentio = TorrentioClient(settings.REAL_DEBRID_API_KEY)
-        self._nyaa = NyaaClient()
-        self._rd = RealDebridClient(
-            settings.REAL_DEBRID_API_KEY, poll_interval=settings.RD_POLL_INTERVAL
-        )
-        self._scorer = QualityScorer()
+        # Reuse the app-level singletons populated by main.lifespan()
+        self._tmdb = state.tmdb
+        self._torrentio = state.torrentio
+        self._nyaa = state.nyaa
+        self._rd = state.rd
+        self._scorer = state.scorer
         self._organizer = MediaOrganizer()
 
     # ------------------------------------------------------------------

@@ -37,6 +37,7 @@ from .config import settings
 from .database import init_db
 from .clients.mpc_client import MPCClient
 from .clients.nyaa_client import NyaaClient
+from .clients.realdebrid_client import RealDebridClient
 from .clients.tmdb_client import TMDBClient
 from .clients.torrentio_client import TorrentioClient
 from .core.job_processor import JobProcessor
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
     state.tmdb           = TMDBClient(settings.TMDB_API_KEY)
     state.torrentio      = TorrentioClient(settings.REAL_DEBRID_API_KEY)
     state.nyaa           = NyaaClient()
+    state.rd             = RealDebridClient(settings.REAL_DEBRID_API_KEY, poll_interval=settings.RD_POLL_INTERVAL)
     state.scorer         = QualityScorer()
     state.library        = LibraryScanner(
         settings.MOVIES_DIR,         settings.TV_DIR,         settings.ANIME_DIR,

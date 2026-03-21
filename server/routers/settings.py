@@ -98,11 +98,24 @@ async def test_rd_key():
 
 
 def _reinit_clients() -> None:
-    """Reinitialise API-key-bearing clients after a settings reload."""
-    from ..clients.tmdb_client      import TMDBClient
-    from ..clients.torrentio_client import TorrentioClient
+    """Reinitialise API-key-bearing clients after a settings reload.
+
+    Also updates the JobProcessor's references since it holds pointers
+    to the old singleton instances.
+    """
+    from ..clients.tmdb_client       import TMDBClient
+    from ..clients.torrentio_client  import TorrentioClient
+    from ..clients.realdebrid_client import RealDebridClient
 
     if state.tmdb is not None:
         state.tmdb = TMDBClient(settings.TMDB_API_KEY)
     if state.torrentio is not None:
         state.torrentio = TorrentioClient(settings.REAL_DEBRID_API_KEY)
+    if state.rd is not None:
+        state.rd = RealDebridClient(settings.REAL_DEBRID_API_KEY, poll_interval=settings.RD_POLL_INTERVAL)
+
+    # Re-point the processor to the new singleton instances
+    if state.processor is not None:
+        state.processor._tmdb = state.tmdb
+        state.processor._torrentio = state.torrentio
+        state.processor._rd = state.rd

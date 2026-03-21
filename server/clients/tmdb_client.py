@@ -13,6 +13,7 @@ Query parsing examples
 """
 from __future__ import annotations
 
+import asyncio
 import re
 import logging
 from dataclasses import dataclass, field
@@ -23,6 +24,10 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TMDB_BASE = "https://api.themoviedb.org/3"
+
+# Retry config for transient network errors
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 1  # seconds; doubles each attempt
 
 # Anime detection: TMDB genre id 16 = Animation; we also check origin_country.
 ANIME_KEYWORDS = re.compile(
@@ -82,6 +87,29 @@ class TMDBClient:
             timeout=15,
         )
 
+    async def _get(self, path: str, **kwargs) -> httpx.Response:
+        """Wrap ``self._client.get`` with retry + exponential backoff.
+
+        Retries on ConnectError, ConnectTimeout, and ReadTimeout so that
+        cold-start DNS / TCP failures don't kill the first request after
+        server startup.
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                r = await self._get(path, **kwargs)
+                r.raise_for_status()
+                return r
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
+                last_exc = exc
+                delay = _RETRY_BACKOFF * (2 ** attempt)
+                logger.info(
+                    "TMDB request %s attempt %d/%d failed (%s) — retrying in %ds",
+                    path, attempt + 1, _MAX_RETRIES, type(exc).__name__, delay,
+                )
+                await asyncio.sleep(delay)
+        raise last_exc  # type: ignore[misc]
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -107,8 +135,7 @@ class TMDBClient:
     async def get_episode_count(self, tmdb_id: int, season: int) -> int:
         """Return the number of episodes in a given TV season."""
         try:
-            r = await self._client.get(f"/tv/{tmdb_id}/season/{season}")
-            r.raise_for_status()
+            r = await self._get(f"/tv/{tmdb_id}/season/{season}")
             data = r.json()
             return len(data.get("episodes", []))
         except Exception:
@@ -116,8 +143,7 @@ class TMDBClient:
 
     async def get_episode_title(self, tmdb_id: int, season: int, episode: int) -> str:
         try:
-            r = await self._client.get(f"/tv/{tmdb_id}/season/{season}/episode/{episode}")
-            r.raise_for_status()
+            r = await self._get(f"/tv/{tmdb_id}/season/{season}/episode/{episode}")
             return r.json().get("name", "")
         except Exception:
             return ""
@@ -162,15 +188,13 @@ class TMDBClient:
             p: dict = {"query": q, "include_adult": False}
             if with_year and year:
                 p[date_key] = year
-            r = await self._client.get(endpoint, params=p)
-            r.raise_for_status()
+            r = await self._get(endpoint, params=p)
             return r.json().get("results", [])
 
         async def _multi(q: str) -> list[dict]:
-            r = await self._client.get(
+            r = await self._get(
                 "/search/multi", params={"query": q, "include_adult": False}
             )
-            r.raise_for_status()
             return [
                 x for x in r.json().get("results", [])
                 if x.get("media_type") in ("movie", "tv")
@@ -270,8 +294,7 @@ class TMDBClient:
         self, query: str, season: Optional[int], episode: Optional[int]
     ) -> MediaInfo:
         """Use TMDB's /search/multi and pick movie vs TV based on result confidence."""
-        r = await self._client.get("/search/multi", params={"query": query, "include_adult": False})
-        r.raise_for_status()
+        r = await self._get("/search/multi", params={"query": query, "include_adult": False})
         results = r.json().get("results", [])
 
         # Filter to movie/tv, sort by popularity
@@ -291,8 +314,7 @@ class TMDBClient:
     async def _search_tv(
         self, query: str, season: Optional[int], episode: Optional[int]
     ) -> MediaInfo:
-        r = await self._client.get("/search/tv", params={"query": query})
-        r.raise_for_status()
+        r = await self._get("/search/tv", params={"query": query})
         results = r.json().get("results", [])
         if not results:
             raise ValueError(f"No TV show found for '{query}'")
@@ -302,8 +324,7 @@ class TMDBClient:
     async def _lookup_imdb(
         self, imdb_id: str, season: Optional[int], episode: Optional[int]
     ) -> MediaInfo:
-        r = await self._client.get("/find/" + imdb_id, params={"external_source": "imdb_id"})
-        r.raise_for_status()
+        r = await self._get("/find/" + imdb_id, params={"external_source": "imdb_id"})
         data = r.json()
         if data.get("movie_results"):
             return await self._build_movie_info(data["movie_results"][0])
@@ -315,13 +336,11 @@ class TMDBClient:
         tmdb_id = tmdb_result["id"]
 
         # Fetch external IDs for IMDb
-        ext = await self._client.get(f"/movie/{tmdb_id}/external_ids")
-        ext.raise_for_status()
+        ext = await self._get(f"/movie/{tmdb_id}/external_ids")
         imdb_id = ext.json().get("imdb_id", "")
 
         # Fetch full movie details for genres
-        det = await self._client.get(f"/movie/{tmdb_id}")
-        det.raise_for_status()
+        det = await self._get(f"/movie/{tmdb_id}")
         details = det.json()
 
         title = details.get("title") or tmdb_result.get("title", "Unknown")
@@ -349,12 +368,10 @@ class TMDBClient:
     ) -> MediaInfo:
         tmdb_id = tmdb_result["id"]
 
-        ext = await self._client.get(f"/tv/{tmdb_id}/external_ids")
-        ext.raise_for_status()
+        ext = await self._get(f"/tv/{tmdb_id}/external_ids")
         imdb_id = ext.json().get("imdb_id", "")
 
-        det = await self._client.get(f"/tv/{tmdb_id}")
-        det.raise_for_status()
+        det = await self._get(f"/tv/{tmdb_id}")
         details = det.json()
 
         title = details.get("name") or tmdb_result.get("name", "Unknown")
@@ -375,8 +392,7 @@ class TMDBClient:
         ep_titles: dict[int, str] = {}
         if season is not None:
             try:
-                s_r = await self._client.get(f"/tv/{tmdb_id}/season/{season}")
-                s_r.raise_for_status()
+                s_r = await self._get(f"/tv/{tmdb_id}/season/{season}")
                 s_data = s_r.json()
                 episodes = s_data.get("episodes", [])
                 ep_count = len(episodes)
