@@ -55,6 +55,10 @@ def _parse_size(text: str) -> Optional[int]:
 class NyaaClient:
     def __init__(self, timeout: int = 15):
         self._timeout = timeout
+        self._client = httpx.AsyncClient(timeout=timeout)
+
+    async def close(self) -> None:
+        await self._client.aclose()
 
     async def search(self, media: MediaInfo) -> list[ScoredStream]:
         """Search nyaa.si for the given anime MediaInfo."""
@@ -83,10 +87,9 @@ class NyaaClient:
 
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.get(url)
-                    resp.raise_for_status()
-                    return self._parse_rss(resp.text)
+                resp = await self._client.get(url)
+                resp.raise_for_status()
+                return self._parse_rss(resp.text)
             except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
                 last_exc = exc
                 delay = _RETRY_BACKOFF * (2 ** attempt)

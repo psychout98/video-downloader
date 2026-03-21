@@ -39,7 +39,14 @@ class RealDebridClient:
     def __init__(self, api_key: str, poll_interval: int = 30):
         self._key = api_key
         self._poll_interval = poll_interval
-        self._headers = {"Authorization": f"Bearer {api_key}"}
+        self._client = httpx.AsyncClient(
+            base_url=RD_BASE,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+
+    async def close(self) -> None:
+        await self._client.aclose()
 
     # ------------------------------------------------------------------
     # Cache check
@@ -51,17 +58,17 @@ class RealDebridClient:
         Retries on transient connection errors so a single network hiccup
         doesn't cause every hash to look uncached.
         """
-        url = f"{RD_BASE}/torrents/instantAvailability/{info_hash.lower()}"
         last_exc: Optional[Exception] = None
 
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(headers=self._headers, timeout=10) as c:
-                    r = await c.get(url)
-                    r.raise_for_status()
-                    data = r.json()
-                    entry = data.get(info_hash.lower(), {})
-                    return bool(entry.get("rd"))
+                r = await self._client.get(
+                    f"/torrents/instantAvailability/{info_hash.lower()}"
+                )
+                r.raise_for_status()
+                data = r.json()
+                entry = data.get(info_hash.lower(), {})
+                return bool(entry.get("rd"))
             except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
                 last_exc = exc
                 delay = _RETRY_BACKOFF * (2 ** attempt)
@@ -83,16 +90,15 @@ class RealDebridClient:
 
     async def add_magnet(self, magnet: str) -> str:
         """Add *magnet* to RD and return the RD torrent ID."""
-        async with httpx.AsyncClient(headers=self._headers, timeout=20) as c:
-            r = await c.post(f"{RD_BASE}/torrents/addMagnet", data={"magnet": magnet})
-            if r.status_code not in (200, 201):
-                raise RealDebridError(f"addMagnet failed ({r.status_code}): {r.text}")
-            data = r.json()
-            torrent_id = data.get("id")
-            if not torrent_id:
-                raise RealDebridError(f"addMagnet returned no id: {data}")
-            logger.info("RD torrent added: %s", torrent_id)
-            return torrent_id
+        r = await self._client.post("/torrents/addMagnet", data={"magnet": magnet})
+        if r.status_code not in (200, 201):
+            raise RealDebridError(f"addMagnet failed ({r.status_code}): {r.text}")
+        data = r.json()
+        torrent_id = data.get("id")
+        if not torrent_id:
+            raise RealDebridError(f"addMagnet returned no id: {data}")
+        logger.info("RD torrent added: %s", torrent_id)
+        return torrent_id
 
     # ------------------------------------------------------------------
     # Select files
@@ -100,15 +106,14 @@ class RealDebridClient:
 
     async def select_all_files(self, torrent_id: str) -> None:
         """Tell RD to download all files in the torrent."""
-        async with httpx.AsyncClient(headers=self._headers, timeout=10) as c:
-            r = await c.post(
-                f"{RD_BASE}/torrents/selectFiles/{torrent_id}",
-                data={"files": "all"},
+        r = await self._client.post(
+            f"/torrents/selectFiles/{torrent_id}",
+            data={"files": "all"},
+        )
+        if r.status_code not in (200, 201, 204):
+            raise RealDebridError(
+                f"selectFiles failed ({r.status_code}): {r.text}"
             )
-            if r.status_code not in (200, 201, 204):
-                raise RealDebridError(
-                    f"selectFiles failed ({r.status_code}): {r.text}"
-                )
 
     # ------------------------------------------------------------------
     # Poll until downloaded
@@ -145,10 +150,9 @@ class RealDebridClient:
             await asyncio.sleep(self._poll_interval)
 
     async def get_torrent_info(self, torrent_id: str) -> dict:
-        async with httpx.AsyncClient(headers=self._headers, timeout=10) as c:
-            r = await c.get(f"{RD_BASE}/torrents/info/{torrent_id}")
-            r.raise_for_status()
-            return r.json()
+        r = await self._client.get(f"/torrents/info/{torrent_id}")
+        r.raise_for_status()
+        return r.json()
 
     # ------------------------------------------------------------------
     # Unrestrict link → direct CDN download URL
@@ -159,16 +163,15 @@ class RealDebridClient:
         Convert an RD link to a direct CDN download URL.
         Returns (download_url, filesize_bytes).
         """
-        async with httpx.AsyncClient(headers=self._headers, timeout=15) as c:
-            r = await c.post(f"{RD_BASE}/unrestrict/link", data={"link": link})
-            if r.status_code not in (200, 201):
-                raise RealDebridError(f"unrestrict/link failed ({r.status_code}): {r.text}")
-            data = r.json()
-            url = data.get("download") or data.get("url")
-            size = data.get("filesize")
-            if not url:
-                raise RealDebridError(f"unrestrict/link returned no URL: {data}")
-            return url, size
+        r = await self._client.post("/unrestrict/link", data={"link": link})
+        if r.status_code not in (200, 201):
+            raise RealDebridError(f"unrestrict/link failed ({r.status_code}): {r.text}")
+        data = r.json()
+        url = data.get("download") or data.get("url")
+        size = data.get("filesize")
+        if not url:
+            raise RealDebridError(f"unrestrict/link returned no URL: {data}")
+        return url, size
 
     async def unrestrict_all(self, links: list[str]) -> list[tuple[str, Optional[int]]]:
         """Unrestrict a list of RD links concurrently."""

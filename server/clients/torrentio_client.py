@@ -61,15 +61,20 @@ class TorrentioClient:
     def __init__(self, rd_api_key: str, timeout: int = 20):
         self._rd_key = rd_api_key
         self._timeout = timeout
+        self._client = httpx.AsyncClient(
+            timeout=timeout,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                ),
+                "Accept": "application/json, */*",
+            },
+        )
 
-    _HEADERS = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept": "application/json, */*",
-    }
+    async def close(self) -> None:
+        await self._client.aclose()
 
     async def _fetch_with_retry(self, url: str) -> Optional[dict]:
         """GET *url* with retry + exponential backoff on transient errors.
@@ -81,16 +86,15 @@ class TorrentioClient:
         last_exc: Optional[Exception] = None
         for attempt in range(_MAX_RETRIES):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
-                    resp = await client.get(url, headers=self._HEADERS)
-                    if resp.status_code in _RETRYABLE_STATUS:
-                        raise httpx.HTTPStatusError(
-                            f"Retryable {resp.status_code}",
-                            request=resp.request,
-                            response=resp,
-                        )
-                    resp.raise_for_status()
-                    return resp.json()
+                resp = await self._client.get(url)
+                if resp.status_code in _RETRYABLE_STATUS:
+                    raise httpx.HTTPStatusError(
+                        f"Retryable {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                resp.raise_for_status()
+                return resp.json()
             except httpx.HTTPStatusError as exc:
                 if exc.response.status_code not in _RETRYABLE_STATUS:
                     raise  # 4xx (e.g. 403) — not transient, surface immediately

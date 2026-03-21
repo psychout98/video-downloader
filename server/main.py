@@ -103,6 +103,9 @@ async def lifespan(app: FastAPI):
     if state.watch_tracker:  state.watch_tracker.stop()
     if state.processor:      state.processor.stop()
     if state.tmdb:           await state.tmdb.close()
+    if state.torrentio:      await state.torrentio.close()
+    if state.rd:             await state.rd.close()
+    if state.nyaa:           await state.nyaa.close()
 
     logger.info("Media Downloader stopped")
 

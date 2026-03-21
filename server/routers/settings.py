@@ -107,6 +107,23 @@ def _reinit_clients() -> None:
     from ..clients.torrentio_client  import TorrentioClient
     from ..clients.realdebrid_client import RealDebridClient
 
+    # Close old persistent connections before creating new clients
+    import asyncio
+
+    async def _close_old():
+        if state.tmdb is not None:
+            await state.tmdb.close()
+        if state.torrentio is not None:
+            await state.torrentio.close()
+        if state.rd is not None:
+            await state.rd.close()
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_close_old())
+    except RuntimeError:
+        pass
+
     if state.tmdb is not None:
         state.tmdb = TMDBClient(settings.TMDB_API_KEY)
     if state.torrentio is not None:
