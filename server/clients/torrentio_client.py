@@ -96,6 +96,10 @@ class TorrentioClient:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 data = resp.json()
+        except httpx.HTTPStatusError:
+            # HTTP 4xx/5xx — re-raise so the caller can show a meaningful error
+            # (e.g. 403 means the Real-Debrid API key is invalid or expired)
+            raise
         except Exception as exc:
             logger.warning("Torrentio request failed: %s", exc)
             return []

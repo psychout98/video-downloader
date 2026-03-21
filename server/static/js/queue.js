@@ -17,7 +17,7 @@ async function doSearch() {
     const data = await r.json();
     if (!r.ok) { showToast('Search failed: ' + (data.detail || 'unknown error'), 'error'); return; }
     currentSearchId = data.search_id;
-    renderStreamPanel(data.media, data.streams);
+    renderStreamPanel(data.media, data.streams, data.warning);
   } catch (e) {
     showToast('Network error: ' + e.message, 'error');
   } finally {
@@ -32,19 +32,25 @@ document.getElementById('q-input').addEventListener('keydown', e => {
 
 // ── Stream picker panel ───────────────────────────────────────────────────────
 
-function renderStreamPanel(media, streams) {
+function renderStreamPanel(media, streams, warning) {
   document.getElementById('sp-title').textContent = media.title || '—';
   document.getElementById('sp-year').textContent  = media.year ? `(${media.year})` : '';
   document.getElementById('sp-type').textContent  = (media.type || '').toUpperCase();
 
   const list = document.getElementById('stream-list');
   if (!streams.length) {
-    list.innerHTML = '<div class="no-streams">No streams found. Try a different query.</div>';
+    const msg = warning || 'No RD-cached torrents found. Try a different query.';
+    list.innerHTML = `<div class="no-streams" style="color:var(--error)">⚠ ${esc(msg)}</div>`;
     document.getElementById('stream-panel').style.display = 'block';
     return;
   }
 
-  list.innerHTML = streams.map((s, i) => {
+  // Show a non-blocking warning banner above the stream list if present
+  const warnHtml = warning
+    ? `<div class="no-streams" style="color:var(--warning,var(--accent));margin-bottom:8px">⚠ ${esc(warning)}</div>`
+    : '';
+
+  list.innerHTML = warnHtml + streams.map((s, i) => {
     const badges  = buildBadgeHTML(s);
     const size    = s.size_bytes ? fmtSize(s.size_bytes) : '';
     const seeds   = s.seeders    ? `${s.seeders} seeds`  : '';

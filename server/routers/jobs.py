@@ -64,28 +64,43 @@ async def search(body: SearchRequest, request: Request):
         raise HTTPException(status_code=404, detail=f"TMDB search failed: {exc}")
 
     # 2. Collect streams — only RD-cached results are shown in the UI
-    from ..clients.realdebrid_client import RealDebridClient as _RDC
-    _rd_check = _RDC(settings.REAL_DEBRID_API_KEY)
     streams = []
+    stream_warning: Optional[str] = None
 
-    if media.is_anime:
-        nyaa_results = await state.nyaa.search(media)
-        for s in nyaa_results:
-            if s.info_hash and await _rd_check.is_cached(s.info_hash):
-                s.is_cached_rd = True
-                streams.append(s)
+    try:
+        from ..clients.realdebrid_client import RealDebridClient as _RDC
+        _rd_check = _RDC(settings.REAL_DEBRID_API_KEY)
 
-    # Torrentio with RD key already filters to cached-only
-    cached = await state.torrentio.get_streams(media, cached_only=True)
-    streams.extend(cached)
+        if media.is_anime:
+            nyaa_results = await state.nyaa.search(media)
+            for s in nyaa_results:
+                if s.info_hash and await _rd_check.is_cached(s.info_hash):
+                    s.is_cached_rd = True
+                    streams.append(s)
 
-    if not streams:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"No RD-cached torrents found for '{media.display_name}'. "
-                "Try a different query or check back later."
-            ),
+        # Torrentio with RD key already filters to cached-only
+        cached = await state.torrentio.get_streams(media, cached_only=True)
+        streams.extend(cached)
+
+    except Exception as exc:
+        # Check if this is an HTTP error from Torrentio (e.g. 403 = bad RD key)
+        http_resp = getattr(exc, "response", None)
+        status_code = getattr(http_resp, "status_code", None)
+        if status_code == 403:
+            stream_warning = (
+                "Real-Debrid API key rejected (403 Forbidden). "
+                "Please verify your key in Settings and save again."
+            )
+        elif status_code is not None:
+            stream_warning = f"Stream service returned HTTP {status_code}. Try again later."
+        else:
+            stream_warning = f"Stream fetch failed: {exc}"
+        logger.warning("Stream fetch failed for %r: %s", body.query, exc)
+
+    if not streams and stream_warning is None:
+        stream_warning = (
+            f"No RD-cached torrents found for '{media.display_name}'. "
+            "Try a different query or check back later."
         )
 
     # 3. Score and rank (top 20)
@@ -135,7 +150,12 @@ async def search(body: SearchRequest, request: Request):
         "expires": time.time() + state.SEARCH_TTL,
     }
 
-    return {"search_id": search_id, "media": media_dict, "streams": stream_dicts}
+    return {
+        "search_id": search_id,
+        "media":     media_dict,
+        "streams":   stream_dicts,
+        "warning":   stream_warning,
+    }
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
