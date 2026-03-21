@@ -3,6 +3,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field
 
+# Absolute path to the project .env — two levels up from this file (server/config.py)
+_ENV_FILE = Path(__file__).parent.parent / ".env"
+
 
 def _userprofile(subdir: str) -> str:
     """Primary media dir: resolves %USERPROFILE%\Media\<subdir> at runtime."""
@@ -59,7 +62,7 @@ class Settings(BaseSettings):
     )
 
     class Config:
-        env_file = ".env"
+        env_file = str(_ENV_FILE)
         env_file_encoding = "utf-8"
 
 
@@ -72,9 +75,12 @@ def reload_settings() -> None:
     Called by the settings router after persisting changes so that the new
     values take effect immediately without a full server restart.
     """
-    global settings
+    import logging
     new = Settings()
-    # Copy every field from the freshly-loaded instance onto the existing one
-    # so that all existing references to `settings` pick up the new values.
-    for field in new.model_fields:
-        object.__setattr__(settings, field, getattr(new, field))
+    # Update __dict__ directly — pydantic v2 stores field values there and
+    # this is more reliable than object.__setattr__ in a loop.
+    settings.__dict__.update(new.__dict__)
+    logging.getLogger(__name__).info(
+        "Settings reloaded — REAL_DEBRID_API_KEY ends with …%s",
+        settings.REAL_DEBRID_API_KEY[-6:] if settings.REAL_DEBRID_API_KEY else "(empty)"
+    )

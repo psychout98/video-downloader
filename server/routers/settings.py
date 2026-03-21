@@ -6,6 +6,7 @@ POST /api/settings   Persist updated values to .env (requires server restart)
 """
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -55,7 +56,9 @@ async def update_settings(body: SettingsUpdateRequest):
             errors.append(f"Unknown key: {key}")
             continue
         try:
-            _set_key(str(state.ENV_FILE), key, str(value))
+            # Strip surrounding quotes the user may have accidentally pasted
+            clean = str(value).strip().strip("'\"")
+            _set_key(str(state.ENV_FILE), key, clean)
             written.append(key)
         except Exception as exc:
             errors.append(f"{key}: {exc}")
@@ -72,6 +75,26 @@ async def update_settings(body: SettingsUpdateRequest):
         "written": written,
         "note":    "Settings applied. A restart is only needed for HOST/PORT changes.",
     }
+
+
+@router.get("/settings/test-rd")
+async def test_rd_key():
+    """Test the current in-memory Real-Debrid API key and return its status."""
+    key = settings.REAL_DEBRID_API_KEY
+    masked = f"…{key[-6:]}" if len(key) >= 6 else "(too short)"
+    try:
+        async with httpx.AsyncClient(timeout=8) as c:
+            r = await c.get(
+                "https://api.real-debrid.com/rest/1.0/user",
+                headers={"Authorization": f"Bearer {key}"},
+            )
+        if r.status_code == 200:
+            username = r.json().get("username", "?")
+            return {"ok": True,  "key_suffix": masked, "username": username}
+        return {"ok": False, "key_suffix": masked,
+                "error": f"RD returned HTTP {r.status_code}"}
+    except Exception as exc:
+        return {"ok": False, "key_suffix": masked, "error": str(exc)}
 
 
 def _reinit_clients() -> None:

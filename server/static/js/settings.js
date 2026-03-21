@@ -60,6 +60,28 @@ function _showSettingsError(toast, msg) {
 }
 
 
+async function testRDKey() {
+  const result = document.getElementById('rd-test-result');
+  result.textContent = 'Testing…';
+  result.style.color = 'var(--muted)';
+  result.style.display = 'inline';
+  try {
+    const r = await fetch('/api/settings/test-rd');
+    const d = await r.json();
+    if (d.ok) {
+      result.textContent = `✓ Connected — ${d.username} (key ${d.key_suffix})`;
+      result.style.color = 'var(--success)';
+    } else {
+      result.textContent = `✗ ${d.error} (key ${d.key_suffix})`;
+      result.style.color = 'var(--error)';
+    }
+  } catch (e) {
+    result.textContent = '✗ Request failed: ' + e.message;
+    result.style.color = 'var(--error)';
+  }
+}
+
+
 // ── Server log viewer ─────────────────────────────────────────────────────────
 
 async function loadLogs() {

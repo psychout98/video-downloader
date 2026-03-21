@@ -86,7 +86,10 @@ async def api_restart():
             CREATE_NEW_PROCESS_GROUP = 0x00000200
             kwargs["creationflags"]  = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         subprocess.Popen(cmd, **kwargs)
-        os._exit(0)   # terminate this process; child carries on independently
+        # Give the child a moment to initialise, then do a clean SIGTERM shutdown
+        # so the socket is properly released before the child tries to bind.
+        await asyncio.sleep(1.5)
+        os.kill(os.getpid(), signal.SIGTERM)
 
     asyncio.create_task(_do_restart())
     return {"ok": True, "message": "Server restarting…"}

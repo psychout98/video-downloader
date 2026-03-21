@@ -131,7 +131,12 @@
         </div>
         <div class="settings-field">
           <label class="settings-label">Real-Debrid API Key</label>
-          <input class="settings-input" id="cfg-REAL_DEBRID_API_KEY" type="password" autocomplete="off"/>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input class="settings-input" id="cfg-REAL_DEBRID_API_KEY" type="password" autocomplete="off" style="flex:1"/>
+            <button class="btn-ghost" style="white-space:nowrap;font-size:11px;padding:4px 10px"
+                    onclick="testRDKey()">✓ Test</button>
+          </div>
+          <span id="rd-test-result" style="font-size:11px;display:none"></span>
         </div>
         <div class="settings-field">
           <label class="settings-label">Webhook Secret Key</label>

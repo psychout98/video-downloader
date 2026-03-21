@@ -199,20 +199,29 @@ def _pip_install(root: Path, log_widget, done_callback):
     """Install requirements into the project's .venv."""
     python = _venv_python(root)
     requirements = root / "requirements.txt"
-    cmd = [python, "-m", "pip", "install", "-r", str(requirements), "--upgrade"]
+    cf = subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0
+
+    def _stream(cmd):
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, creationflags=cf,
+        )
+        for line in proc.stdout:
+            _append_log(log_widget, line)
+        proc.wait()
+        return proc.returncode == 0
 
     def _run():
         try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0,
-            )
-            for line in proc.stdout:
-                _append_log(log_widget, line)
-            proc.wait()
-            ok = proc.returncode == 0
+            # Force-reinstall click first — uvicorn[standard] sometimes installs
+            # it without a RECORD file, which breaks normal pip uninstall/upgrade.
+            _append_log(log_widget, "Fixing click installation…\n")
+            _stream([python, "-m", "pip", "install",
+                     "--ignore-installed", "--no-deps", "click==8.3.1"])
+
+            ok = _stream([python, "-m", "pip", "install",
+                          "-r", str(requirements), "--upgrade"])
         except Exception as exc:
             _append_log(log_widget, f"\nERROR: {exc}\n")
             ok = False
