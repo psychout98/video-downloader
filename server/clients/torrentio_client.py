@@ -109,7 +109,7 @@ class TorrentioClient:
             # (e.g. 403 means the Real-Debrid API key is invalid or expired)
             raise
         except Exception as exc:
-            logger.warning("Torrentio request failed: %s", exc)
+            logger.warning("Torrentio request failed (%s): %r", type(exc).__name__, exc)
             return []
 
         streams = data.get("streams", [])
