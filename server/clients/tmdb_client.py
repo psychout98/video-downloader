@@ -97,7 +97,7 @@ class TMDBClient:
         last_exc: Optional[Exception] = None
         for attempt in range(_MAX_RETRIES):
             try:
-                r = await self._get(path, **kwargs)
+                r = await self._client.get(path, **kwargs)
                 r.raise_for_status()
                 return r
             except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as exc:
