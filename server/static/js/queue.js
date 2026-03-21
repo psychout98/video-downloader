@@ -3,9 +3,19 @@
 
 // ── Search ───────────────────────────────────────────────────────────────────
 
+let _searchController = null;   // AbortController for the in-flight search
+let _searchGeneration  = 0;     // increments with every new search; lets finally know if it's stale
+
 async function doSearch() {
   const q = document.getElementById('q-input').value.trim();
   if (!q) return;
+
+  // Cancel any previous in-flight search before starting a new one
+  if (_searchController) _searchController.abort();
+  _searchController = new AbortController();
+  const signal = _searchController.signal;
+  const myGen  = ++_searchGeneration;   // capture the generation for this request
+
   showLoading('Searching TMDB &amp; torrent sources…');
   hideStreamPanel();
   try {
@@ -13,15 +23,22 @@ async function doSearch() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query: q }),
+      signal,
     });
     const data = await r.json();
     if (!r.ok) { showToast('Search failed: ' + (data.detail || 'unknown error'), 'error'); return; }
     currentSearchId = data.search_id;
     renderStreamPanel(data.media, data.streams, data.warning);
   } catch (e) {
+    if (e.name === 'AbortError') return;   // superseded by a newer search — ignore silently
     showToast('Network error: ' + e.message, 'error');
   } finally {
-    hideLoading();
+    // Only tear down the loading state if no newer search has taken over.
+    // An aborted request must NOT hide the overlay that belongs to its successor.
+    if (myGen === _searchGeneration) {
+      hideLoading();
+      _searchController = null;
+    }
   }
 }
 
