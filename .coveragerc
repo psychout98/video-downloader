@@ -1,0 +1,15 @@
+[run]
+source = server
+omit =
+    # Entry point — no testable logic, just wires up uvicorn
+    server/main.py
+    # Tray app is a separate process, not part of the server
+    tray/*
+
+[report]
+fail_under = 100
+show_missing = true
+skip_covered = false
+
+[html]
+directory = coverage_html

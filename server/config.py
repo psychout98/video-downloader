@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
 from pydantic import Field
+from pydantic_settings import SettingsConfigDict
 
 # Absolute path to the project .env — two levels up from this file (server/config.py)
 _ENV_FILE = Path(__file__).parent.parent / ".env"
@@ -9,7 +10,7 @@ _DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 def _userprofile(subdir: str) -> str:
-    """Primary media dir: resolves %USERPROFILE%\Media\<subdir> at runtime."""
+    r"""Primary media dir: resolves %USERPROFILE%\Media\<subdir> at runtime."""
     return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media" / subdir)
 
 
@@ -58,9 +59,11 @@ class Settings(BaseSettings):
         description="Full path to the MPC-BE executable (used to launch it when closed)",
     )
 
-    class Config:
-        env_file = str(_ENV_FILE)
-        env_file_encoding = "utf-8"
+    model_config = SettingsConfigDict(
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",  # ignore unknown keys in .env (e.g. leftover SECRET_KEY)
+    )
 
 
 settings = Settings()

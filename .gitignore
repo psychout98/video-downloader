@@ -1,0 +1,26 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Build / dist
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# Data & media (local only)
+data/
+media_downloader.db
+
+# macOS
+.DS_Store

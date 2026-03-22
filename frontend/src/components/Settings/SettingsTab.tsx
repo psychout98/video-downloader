@@ -67,6 +67,7 @@ function SettingsTab({ showToast }: Props) {
         {}
       );
 
+      /* c8 ignore next 4 -- button is disabled when !isModified, so no-changes path is unreachable via UI */
       if (Object.keys(changes).length === 0) {
         showToast('No changes to save', 'info');
         return;

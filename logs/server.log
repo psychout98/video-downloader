@@ -1,0 +1,13 @@
+2026-03-22 09:57:32,266 [INFO] server.main: Media Downloader starting …
+2026-03-22 09:57:32,323 [INFO] server.core.job_processor: JobProcessor started
+2026-03-22 09:57:32,323 [INFO] server.core.watch_tracker: WatchTracker started (threshold=85%)
+2026-03-22 09:57:32,331 [INFO] server.core.library_manager: Library scan: 0 items
+2026-03-22 09:57:32,332 [INFO] server.main: Startup library scan complete
+2026-03-22 10:00:07,081 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/search/multi?api_key=7a6b69edec44fe48df3d5a2be162dd7f&query=Apothecary+diaries&include_adult=false "HTTP/1.1 200 OK"
+2026-03-22 10:00:07,121 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/tv/220542/external_ids?api_key=7a6b69edec44fe48df3d5a2be162dd7f "HTTP/1.1 200 OK"
+2026-03-22 10:00:07,191 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/tv/220542?api_key=7a6b69edec44fe48df3d5a2be162dd7f "HTTP/1.1 200 OK"
+2026-03-22 10:00:08,983 [INFO] httpx: HTTP Request: GET https://torrentio.strem.fun/realdebrid=KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q|sort=qualitysize|limit=20/stream/movie/tt26743760.json "HTTP/1.1 200 OK"
+2026-03-22 10:00:08,986 [INFO] server.clients.torrentio_client: Torrentio returned 25 streams for The Apothecary Diaries (2023) (cached_only=True)
+2026-03-22 10:00:22,709 [INFO] server.core.library_manager: Library scan: 0 items
+2026-03-22 10:00:44,670 [INFO] server.core.job_processor: JobProcessor stopping -- 0 active jobs
+2026-03-22 10:00:44,673 [INFO] server.main: Media Downloader stopped

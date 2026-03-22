@@ -40,6 +40,7 @@ export function escapeHtml(str: string): string {
     '"': '&quot;',
     "'": '&#039;',
   };
+  /* c8 ignore next -- fallback `|| char` is unreachable: regex only matches keys in map */
   return str.replace(/[&<>"']/g, (char) => map[char] || char);
 }
 
