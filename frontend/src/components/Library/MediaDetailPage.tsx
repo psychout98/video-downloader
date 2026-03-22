@@ -298,7 +298,7 @@ function MediaDetailPage({ tmdbId, onBack, onPlay, showToast }: Props) {
                         {/* Title & progress */}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-dark-text truncate">
-                            {ep.title || ep.filename}
+                            {ep.title || ep.rel_path}
                           </p>
                           {ep.progress_pct > 0 && (
                             <div className="mt-1 flex items-center gap-2">

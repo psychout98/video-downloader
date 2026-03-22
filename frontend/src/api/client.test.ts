@@ -499,7 +499,7 @@ describe('apiClient', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/mpc/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: '/path/movie.mkv', playlist: undefined }),
+        body: JSON.stringify({ path: '/path/movie.mkv', playlist: undefined }),  // string path → path-based request
       });
       expect(result).toEqual({ ok: true, launched: true });
     });
@@ -507,7 +507,7 @@ describe('apiClient', () => {
     it('should open file with playlist', async () => {
       fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true, launched: false }) });
 
-      await apiClient.openInMpc('/path/ep1.mkv', ['/path/ep1.mkv', '/path/ep2.mkv']);
+      await apiClient.openInMpc('/path/ep1.mkv', undefined, ['/path/ep1.mkv', '/path/ep2.mkv']);
 
       const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
       expect(body.playlist).toEqual(['/path/ep1.mkv', '/path/ep2.mkv']);
