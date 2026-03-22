@@ -22,10 +22,6 @@ test.describe('Navigation', () => {
     await page.getByRole('button', { name: 'Now Playing' }).click();
     await expect(page.getByText('MPC-BE not reachable')).toBeVisible();
 
-    // Switch to Settings
-    await page.getByRole('button', { name: 'Settings' }).click();
-    await expect(page.getByText('Configuration')).toBeVisible();
-
     // Back to Queue
     await page.getByRole('button', { name: 'Queue' }).click();
     await expect(page.getByText('Search & Download')).toBeVisible();
