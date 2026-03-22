@@ -45,7 +45,7 @@ function MediaModal({ item, onClose, onPlay, showToast }: Props) {
         ? group.episodes.filter((e) => e.episode >= ep.episode).map((e) => e.path)
         : [ep.path];
 
-      await apiClient.openInMpc(ep.path, playlist);
+      await apiClient.openInMpc(ep.path, undefined, playlist);
       onPlay();
       onClose();
       showToast('Playing in MPC-BE', 'success');

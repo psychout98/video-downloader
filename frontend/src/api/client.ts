@@ -71,17 +71,59 @@ export interface Job {
 }
 
 export interface LibraryItem {
+  tmdb_id: number | null;
   title: string;
   year: number | null;
   type: 'movie' | 'tv' | 'anime';
   path: string;
   folder: string;
+  folder_name: string;
   folder_archive?: string;
   file_count: number;
   size_bytes: number;
   poster: string | null;
   modified_at: number;
   storage: string;
+}
+
+export interface LibraryItemDetail {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  type: 'movie' | 'tv' | 'anime';
+  overview: string | null;
+  poster_url: string | null;
+  imdb_id: string | null;
+  folder_name: string;
+  file_count: number;
+  size_bytes: number;
+  location: 'media' | 'archive' | 'both';
+  episodes: EpisodeDetail[];
+}
+
+export interface EpisodeDetail {
+  rel_path: string;
+  season: number | null;
+  episode: number | null;
+  title: string;
+  size_bytes: number;
+  progress_pct: number;
+  position_ms: number;
+  duration_ms: number;
+  watched: boolean;
+}
+
+export interface ContinueWatchingItem {
+  tmdb_id: number;
+  title: string;
+  type: 'movie' | 'tv' | 'anime';
+  poster_path: string | null;
+  year: number | null;
+  rel_path: string;
+  position_ms: number;
+  duration_ms: number;
+  watched: boolean;
+  updated_at: string;
 }
 
 export interface SeasonGroup {
@@ -101,6 +143,15 @@ export interface EpisodeInfo {
   duration_ms: number;
 }
 
+export interface MpcMediaContext {
+  tmdb_id: number | null;
+  title: string | null;
+  type: string | null;
+  poster_url: string | null;
+  season: number | null;
+  episode: number | null;
+}
+
 export interface MpcStatus {
   reachable: boolean;
   file: string | null;
@@ -114,6 +165,7 @@ export interface MpcStatus {
   duration_str: string;
   volume: number;
   muted: boolean;
+  media: MpcMediaContext | null;
 }
 
 export interface Settings {
@@ -213,8 +265,22 @@ export const apiClient = {
     return handleResponse(response);
   },
 
-  getPosterUrl: (path: string): string => {
-    return `/api/library/poster?path=${encodeURIComponent(path)}`;
+  getLibraryItem: async (tmdbId: number): Promise<LibraryItemDetail> => {
+    const response = await fetch(`/api/library/${tmdbId}`);
+    return handleResponse(response);
+  },
+
+  getContinueWatching: async (): Promise<ContinueWatchingItem[]> => {
+    const response = await fetch('/api/library/continue');
+    const data = await handleResponse<{ items: ContinueWatchingItem[] }>(response);
+    return data.items;
+  },
+
+  getPosterUrl: (pathOrTmdbId: string | number): string => {
+    if (typeof pathOrTmdbId === 'number') {
+      return `/api/library/${pathOrTmdbId}/poster`;
+    }
+    return `/api/library/poster?path=${encodeURIComponent(pathOrTmdbId)}`;
   },
 
   getTmdbPoster: async (
@@ -267,13 +333,25 @@ export const apiClient = {
     return handleResponse(response);
   },
 
-  openInMpc: async (path: string, playlist?: string[]): Promise<{ ok: boolean; launched: boolean }> => {
+  openInMpc: async (tmdbIdOrPath: number | string, relPath?: string, playlist?: string[]): Promise<{ ok: boolean; launched: boolean }> => {
+    const body = typeof tmdbIdOrPath === 'number'
+      ? { tmdb_id: tmdbIdOrPath, rel_path: relPath, playlist }
+      : { path: tmdbIdOrPath, playlist };
     const response = await fetch('/api/mpc/open', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, playlist }),
+      body: JSON.stringify(body),
     });
     return handleResponse(response);
   },
 
+  mpcNext: async (): Promise<{ ok: boolean; rel_path?: string }> => {
+    const response = await fetch('/api/mpc/next', { method: 'POST' });
+    return handleResponse(response);
+  },
+
+  mpcPrev: async (): Promise<{ ok: boolean; rel_path?: string }> => {
+    const response = await fetch('/api/mpc/prev', { method: 'POST' });
+    return handleResponse(response);
+  },
 };
