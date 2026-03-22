@@ -1,0 +1,88 @@
+<UserControl x:Class="MediaDownloader.Views.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgSecondaryBrush}">
+
+    <Grid Margin="32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0"
+                   Text="Media Downloader"
+                   FontSize="28" FontWeight="SemiBold"
+                   Foreground="{StaticResource TextPrimaryBrush}"
+                   Margin="0,0,0,24" />
+
+        <!-- Server Status Card -->
+        <Border Grid.Row="1"
+                Background="{StaticResource BgPrimaryBrush}"
+                CornerRadius="8"
+                Padding="24"
+                Margin="0,0,0,24">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Status indicator -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Ellipse Width="16" Height="16" Margin="0,0,12,0">
+                        <Ellipse.Fill>
+                            <SolidColorBrush Color="{Binding StatusColor}" />
+                        </Ellipse.Fill>
+                    </Ellipse>
+                    <StackPanel>
+                        <TextBlock Text="Server Status"
+                                   FontSize="12"
+                                   Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBlock Text="{Binding StatusText}"
+                                   FontSize="20" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Action buttons -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal"
+                            VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <Button Content="Start"
+                            Command="{Binding StartCommand}"
+                            Style="{StaticResource AccentButton}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Stop"
+                            Command="{Binding StopCommand}"
+                            Style="{StaticResource SecondaryButton}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Restart"
+                            Command="{Binding RestartCommand}"
+                            Style="{StaticResource SecondaryButton}"
+                            Margin="0,0,8,0" />
+                    <Button Content="Open Web UI"
+                            Command="{Binding OpenWebUiCommand}"
+                            Style="{StaticResource AccentButton}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Version info -->
+        <Border Grid.Row="2"
+                Background="{StaticResource BgPrimaryBrush}"
+                CornerRadius="8"
+                Padding="24">
+            <StackPanel>
+                <TextBlock Text="Version"
+                           FontSize="12"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           Margin="0,0,0,4" />
+                <TextBlock Text="{Binding Update.CurrentVersion}"
+                           FontSize="14"
+                           Foreground="{StaticResource TextPrimaryBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

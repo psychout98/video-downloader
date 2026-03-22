@@ -1,0 +1,50 @@
+<Window x:Class="MediaDownloader.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:MediaDownloader.Views"
+        xmlns:tb="http://www.hardcodet.net/taskbar"
+        Title="Media Downloader"
+        Width="900" Height="650"
+        MinWidth="700" MinHeight="500"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BgSecondaryBrush}"
+        Closing="Window_Closing"
+        StateChanged="Window_StateChanged">
+
+    <Window.TaskbarItemInfo>
+        <TaskbarItemInfo />
+    </Window.TaskbarItemInfo>
+
+    <Grid>
+        <!-- System tray icon -->
+        <tb:TaskbarIcon x:Name="TrayIcon"
+                        ToolTipText="Media Downloader"
+                        TrayMouseDoubleClick="TrayIcon_DoubleClick">
+            <tb:TaskbarIcon.ContextMenu>
+                <ContextMenu>
+                    <MenuItem Header="Open" Click="TrayOpen_Click" FontWeight="Bold" />
+                    <Separator />
+                    <MenuItem Header="Start Server" Click="TrayStart_Click" />
+                    <MenuItem Header="Stop Server" Click="TrayStop_Click" />
+                    <Separator />
+                    <MenuItem Header="Exit" Click="TrayExit_Click" />
+                </ContextMenu>
+            </tb:TaskbarIcon.ContextMenu>
+        </tb:TaskbarIcon>
+
+        <TabControl>
+            <TabItem Header="Dashboard">
+                <views:DashboardView x:Name="DashboardTab" />
+            </TabItem>
+            <TabItem Header="Settings">
+                <views:SettingsView x:Name="SettingsTab" />
+            </TabItem>
+            <TabItem Header="Logs">
+                <views:LogsView x:Name="LogsTab" />
+            </TabItem>
+            <TabItem Header="Updates">
+                <views:UpdateView x:Name="UpdateTab" />
+            </TabItem>
+        </TabControl>
+    </Grid>
+</Window>

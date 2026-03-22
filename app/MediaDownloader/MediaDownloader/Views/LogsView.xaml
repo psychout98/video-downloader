@@ -1,0 +1,59 @@
+<UserControl x:Class="MediaDownloader.Views.LogsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgSecondaryBrush}">
+
+    <Grid Margin="32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                       Text="Server Logs"
+                       FontSize="24" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       VerticalAlignment="Center" />
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <CheckBox Content="Auto-scroll"
+                          IsChecked="{Binding AutoScroll}"
+                          Foreground="{StaticResource TextPrimaryBrush}"
+                          VerticalAlignment="Center"
+                          Margin="0,0,12,0" />
+                <Button Content="Refresh"
+                        Command="{Binding RefreshCommand}"
+                        Style="{StaticResource SecondaryButton}"
+                        Margin="0,0,8,0" />
+                <Button Content="Clear"
+                        Command="{Binding ClearCommand}"
+                        Style="{StaticResource SecondaryButton}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Log content -->
+        <Border Grid.Row="1"
+                Background="{StaticResource BgPrimaryBrush}"
+                CornerRadius="8"
+                Padding="12">
+            <TextBox x:Name="LogTextBox"
+                     Text="{Binding LogContent, Mode=OneWay}"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto"
+                     FontFamily="Consolas"
+                     FontSize="12"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Foreground="{StaticResource TextPrimaryBrush}" />
+        </Border>
+    </Grid>
+</UserControl>

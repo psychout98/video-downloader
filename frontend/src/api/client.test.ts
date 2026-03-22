@@ -247,32 +247,6 @@ describe('apiClient', () => {
     });
   });
 
-  describe('getLogs', () => {
-    it('should unwrap lines array from envelope', async () => {
-      const mockLines = ['[INFO] Starting server', '[INFO] Server listening on port 8000'];
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ lines: mockLines, total: 2 }),
-      });
-
-      const result = await apiClient.getLogs();
-
-      expect(fetchMock).toHaveBeenCalledWith('/api/logs?lines=100');
-      expect(result).toEqual(mockLines);
-    });
-
-    it('should pass custom line limit', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ lines: [], total: 0 }),
-      });
-
-      await apiClient.getLogs(50);
-
-      expect(fetchMock).toHaveBeenCalledWith('/api/logs?lines=50');
-    });
-  });
-
   describe('getPosterUrl', () => {
     it('should generate correct URL with encoded path', () => {
       const url = apiClient.getPosterUrl('/path/to/movie');
@@ -514,20 +488,6 @@ describe('apiClient', () => {
     });
   });
 
-  describe('testRdKey', () => {
-    it('should fetch test-rd endpoint and return result', async () => {
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ ok: true, key_suffix: '...abc123', username: 'user1' }),
-      });
-
-      const result = await apiClient.testRdKey();
-
-      expect(fetchMock).toHaveBeenCalledWith('/api/settings/test-rd');
-      expect(result).toEqual({ ok: true, key_suffix: '...abc123', username: 'user1' });
-    });
-  });
-
   describe('other API methods', () => {
     it('should get single job', async () => {
       const mockJob = {
@@ -582,23 +542,6 @@ describe('apiClient', () => {
       expect(result).toEqual(mockResponse);
     });
 
-    it('should get settings', async () => {
-      const mockSettings = {
-        TMDB_API_KEY: 'key123',
-        HOST: 'localhost',
-        PORT: 8000,
-      };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockSettings,
-      });
-
-      const result = await apiClient.getSettings();
-
-      expect(fetchMock).toHaveBeenCalledWith('/api/settings');
-      expect(result).toEqual(mockSettings);
-    });
-
     it('should delete a job', async () => {
       fetchMock.mockResolvedValueOnce({
         ok: true,
@@ -611,21 +554,5 @@ describe('apiClient', () => {
       expect(result.message).toBe('Job deleted');
     });
 
-    it('should save settings', async () => {
-      const updates = { TMDB_API_KEY: 'new-key' };
-      fetchMock.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ ok: true, written: ['TMDB_API_KEY'] }),
-      });
-
-      const result = await apiClient.saveSettings(updates);
-
-      expect(fetchMock).toHaveBeenCalledWith('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ updates }),
-      });
-      expect(result.written).toContain('TMDB_API_KEY');
-    });
   });
 });

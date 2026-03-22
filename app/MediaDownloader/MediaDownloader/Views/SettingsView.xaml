@@ -1,0 +1,254 @@
+<UserControl x:Class="MediaDownloader.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{StaticResource BgSecondaryBrush}">
+
+    <Grid Margin="32,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,16">
+            <TextBlock Text="Settings"
+                       FontSize="24" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       VerticalAlignment="Center" />
+            <TextBlock Text=" (unsaved changes)"
+                       FontSize="14"
+                       Foreground="{StaticResource WarningBrush}"
+                       VerticalAlignment="Center"
+                       Visibility="{Binding IsDirty, Converter={StaticResource BoolToVisibility}}" />
+        </StackPanel>
+
+        <!-- Settings groups -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+                <!-- API Keys -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="API Keys" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Label Content="TMDB API Key" />
+                        <PasswordBox x:Name="TmdbKeyBox" PasswordChanged="TmdbKey_Changed" Margin="0,0,0,12" />
+
+                        <Label Content="Real-Debrid API Key" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <PasswordBox x:Name="RdKeyBox" Grid.Column="0" PasswordChanged="RdKey_Changed" />
+                            <Button Grid.Column="1" Content="Test" Command="{Binding TestRdKeyCommand}"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+                        <TextBlock Text="{Binding RdTestResult}" FontSize="12"
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <!-- Library Directories -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Library Directories" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Label Content="Movies" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding MoviesDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseMoviesDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="TV Shows" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding TvDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseTvDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="Anime" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding AnimeDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseAnimeDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Archive Directories -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Archive Directories" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Label Content="Movies Archive" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding MoviesDirArchive, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseMoviesDirArchive_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="TV Shows Archive" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding TvDirArchive, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseTvDirArchive_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="Anime Archive" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding AnimeDirArchive, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseAnimeDirArchive_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Other Paths -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Other Paths" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Label Content="Downloads Directory" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding DownloadsDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseDownloadsDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="Posters Directory" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding PostersDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowsePostersDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- MPC-BE -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="MPC-BE" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Label Content="Web Interface URL" />
+                        <TextBox Text="{Binding MpcBeUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,12" />
+
+                        <Label Content="Executable Path" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding MpcBeExe, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseMpcBeExe_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Server -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Server" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,8,12">
+                                <Label Content="Host" />
+                                <TextBox Text="{Binding Host, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="0" Grid.Column="1" Margin="8,0,0,12">
+                                <Label Content="Port" />
+                                <TextBox Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,0">
+                                <Label Content="Max Concurrent Downloads" />
+                                <TextBox Text="{Binding MaxConcurrentDownloads, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="1" Margin="8,0,0,0">
+                                <Label Content="Watch Threshold" />
+                                <TextBox Text="{Binding WatchThreshold, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Startup -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Startup" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+                        <CheckBox Content="Start on Windows login"
+                                  IsChecked="{Binding StartOnBoot}"
+                                  Foreground="{StaticResource TextPrimaryBrush}"
+                                  FontSize="13" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action bar -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Discard Changes"
+                    Command="{Binding DiscardCommand}"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="0,0,8,0" />
+            <Button Content="Save Settings"
+                    Command="{Binding SaveCommand}"
+                    Style="{StaticResource AccentButton}" />
+        </StackPanel>
+    </Grid>
+</UserControl>
