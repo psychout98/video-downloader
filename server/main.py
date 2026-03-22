@@ -42,6 +42,7 @@ from .clients.tmdb_client import TMDBClient
 from .clients.torrentio_client import TorrentioClient
 from .core.job_processor import JobProcessor
 from .core.library_manager import LibraryManager
+from .core.migration import check_migration_needed, run_migration
 from .core.progress_store import ProgressStore
 from .core.watch_tracker import WatchTracker
 
@@ -94,6 +95,12 @@ async def lifespan(app: FastAPI):
     state.processor.start()
     state.watch_tracker  = WatchTracker(state.mpc, state.progress_store)
     state.watch_tracker.start()
+
+    # Run one-time migration if needed
+    if await check_migration_needed():
+        logger.info("Running one-time migration from legacy layout …")
+        migration_summary = await run_migration(tmdb_client=state.tmdb)
+        logger.info("Migration summary: %s", migration_summary)
 
     # Auto-refresh library on startup (background task)
     asyncio.create_task(_startup_library_refresh())

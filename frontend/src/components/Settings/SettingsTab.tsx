@@ -103,8 +103,7 @@ function SettingsTab({ showToast }: Props) {
   // Group settings for display
   const settingGroups: Record<string, string[]> = {
     'API Keys': ['TMDB_API_KEY', 'REAL_DEBRID_API_KEY'],
-    'Library Directories': ['MOVIES_DIR', 'TV_DIR', 'ANIME_DIR'],
-    'Archive Directories': ['MOVIES_DIR_ARCHIVE', 'TV_DIR_ARCHIVE', 'ANIME_DIR_ARCHIVE'],
+    'Media Directories': ['MEDIA_DIR', 'ARCHIVE_DIR'],
     'Other Paths': ['DOWNLOADS_DIR', 'POSTERS_DIR'],
     'MPC-BE': ['MPC_BE_URL', 'MPC_BE_EXE'],
     'Server': ['HOST', 'PORT', 'MAX_CONCURRENT_DOWNLOADS', 'WATCH_THRESHOLD'],

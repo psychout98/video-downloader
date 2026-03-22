@@ -21,6 +21,14 @@ logs/
 # Data & media (local only)
 data/
 media_downloader.db
+*.db
+
+# Coverage
+.coverage
+htmlcov/
+
+# Test artifacts
+MagicMock/
 
 # macOS
 .DS_Store
