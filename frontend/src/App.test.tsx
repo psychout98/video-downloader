@@ -27,10 +27,6 @@ vi.mock('./components/NowPlaying/NowPlayingTab', () => ({
   default: () => <div data-testid="nowplaying-tab">NowPlayingTab</div>,
 }));
 
-vi.mock('./components/Settings/SettingsTab', () => ({
-  default: () => <div data-testid="settings-tab">SettingsTab</div>,
-}));
-
 vi.mock('./api/client');
 
 describe('App', () => {
@@ -55,12 +51,11 @@ describe('App', () => {
       expect(screen.getByText('Media Downloader')).toBeInTheDocument();
     });
 
-    it('should render all four tab buttons', () => {
+    it('should render all three tab buttons', () => {
       render(<App />);
       expect(screen.getByRole('button', { name: 'Queue' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Library' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Now Playing' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument();
     });
 
     it('should show Queue tab by default', () => {
@@ -138,13 +133,6 @@ describe('App', () => {
       render(<App />);
       await user.click(screen.getByRole('button', { name: 'Now Playing' }));
       expect(screen.getByTestId('nowplaying-tab')).toBeInTheDocument();
-    });
-
-    it('should switch to Settings tab', async () => {
-      const user = userEvent.setup();
-      render(<App />);
-      await user.click(screen.getByRole('button', { name: 'Settings' }));
-      expect(screen.getByTestId('settings-tab')).toBeInTheDocument();
     });
 
     it('should switch back to Queue tab', async () => {

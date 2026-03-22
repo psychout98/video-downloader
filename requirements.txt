@@ -10,8 +10,3 @@ aiofiles==24.1.0
 pydantic-settings==2.7.1
 python-dotenv==1.0.1
 python-multipart==0.0.20
-
-# ── System Tray App ──────────────────────────────────────────────────────────
-pystray>=0.19.5
-Pillow>=10.0.0
-requests>=2.31.0

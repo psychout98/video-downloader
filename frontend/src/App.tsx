@@ -3,9 +3,8 @@ import { apiClient } from './api/client';
 import QueueTab from './components/Queue/QueueTab';
 import LibraryTab from './components/Library/LibraryTab';
 import NowPlayingTab from './components/NowPlaying/NowPlayingTab';
-import SettingsTab from './components/Settings/SettingsTab';
 
-type TabType = 'queue' | 'library' | 'playing' | 'settings';
+type TabType = 'queue' | 'library' | 'playing';
 
 interface Toast {
   id: string;
@@ -96,16 +95,6 @@ function App() {
           >
             Now Playing
           </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={
-              activeTab === 'settings'
-                ? 'tab-button-active text-dark-accent border-b-2 border-dark-accent px-4 py-3'
-                : 'tab-button-inactive text-dark-text/60 hover:text-dark-text px-4 py-3'
-            }
-          >
-            Settings
-          </button>
         </div>
       </nav>
 
@@ -115,7 +104,6 @@ function App() {
           {activeTab === 'queue' && <QueueTab showToast={showToast} />}
           {activeTab === 'library' && <LibraryTab showToast={showToast} onPlay={() => setActiveTab('playing')} />}
           {activeTab === 'playing' && <NowPlayingTab showToast={showToast} />}
-          {activeTab === 'settings' && <SettingsTab showToast={showToast} />}
         </div>
       </main>
 

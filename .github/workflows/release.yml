@@ -1,21 +1,12 @@
-name: Build Installer & Update Package
+name: Create Release
 
 on:
-  workflow_dispatch:
-
   push:
-    paths:
-      - 'requirements.txt'
-      - 'run_server.bat'
-      - 'stop_server.bat'
-      - 'server/**'
-      - 'frontend/**'
-      - 'app/**'
-      - 'installer/**'
-      - '.github/workflows/build-installer.yml'
+    tags:
+      - 'v*'
 
 jobs:
-  build:
+  build-and-release:
     runs-on: windows-latest
 
     steps:
@@ -57,35 +48,27 @@ jobs:
       # ── Write version file ──────────────────────────────────────────
       - name: Write version file
         run: |
-          $sha = git rev-parse --short HEAD
-          $sha | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
+          "${{ github.ref_name }}" | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
+          "${{ github.ref_name }}" | Out-File -FilePath .version -NoNewline -Encoding utf8
 
       # ── Inno Setup installer ────────────────────────────────────────
       - name: Build installer with Inno Setup
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
 
-      # ── Update package (for in-app updates) ─────────────────────────
+      # ── Update package ─────────────────────────────────────────────
       - name: Create update package
         run: |
-          $sha = git rev-parse --short HEAD
-          $sha | Out-File -FilePath .version -NoNewline -Encoding utf8
           Compress-Archive `
             -Path server, requirements.txt, run_server.bat, stop_server.bat, .version `
             -DestinationPath dist/MediaDownloader-update.zip `
             -Force
 
-      # ── Upload artifacts ────────────────────────────────────────────
-      - name: Upload installer
-        uses: actions/upload-artifact@v4
+      # ── Create GitHub Release ───────────────────────────────────────
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: MediaDownloader-Setup
-          path: dist/MediaDownloader-Setup.exe
-          retention-days: 30
-
-      - name: Upload update package
-        uses: actions/upload-artifact@v4
-        with:
-          name: MediaDownloader-Update
-          path: dist/MediaDownloader-update.zip
-          retention-days: 30
+          generate_release_notes: true
+          files: |
+            dist/MediaDownloader-Setup.exe
+            dist/MediaDownloader-update.zip
