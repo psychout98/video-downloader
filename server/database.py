@@ -24,6 +24,27 @@ jobs
   log             TEXT               newline-delimited progress log
   created_at      TEXT               ISO datetime
   updated_at      TEXT               ISO datetime
+
+media_items
+  tmdb_id         INTEGER PRIMARY KEY  (TMDB ID — stable unique key)
+  title           TEXT                  clean display title
+  year            INTEGER               release year
+  type            TEXT                  movie | tv | anime
+  overview        TEXT                  TMDB synopsis
+  poster_path     TEXT                  TMDB poster path (e.g. /abc123.jpg)
+  imdb_id         TEXT                  IMDb ID if available
+  folder_name     TEXT                  current folder name: "Title [tmdb_id]"
+  added_at        TEXT                  ISO timestamp of first discovery
+  updated_at      TEXT                  ISO timestamp of last metadata refresh
+
+watch_progress
+  tmdb_id         INTEGER               FK → media_items
+  rel_path        TEXT                  relative path: "S01E01 - Pilot.mkv"
+  position_ms     INTEGER               playback position
+  duration_ms     INTEGER               total duration
+  watched         BOOLEAN               true when position >= threshold
+  updated_at      TEXT                  ISO timestamp
+  PRIMARY KEY (tmdb_id, rel_path)
 """
 from __future__ import annotations
 
@@ -81,7 +102,47 @@ async def init_db() -> None:
                 updated_at        TEXT
             )
         """)
+
+        # --- Library tables ---
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS media_items (
+                tmdb_id       INTEGER PRIMARY KEY,
+                title         TEXT    NOT NULL,
+                year          INTEGER,
+                type          TEXT    NOT NULL,
+                overview      TEXT,
+                poster_path   TEXT,
+                imdb_id       TEXT,
+                folder_name   TEXT    NOT NULL,
+                added_at      TEXT    NOT NULL,
+                updated_at    TEXT    NOT NULL
+            )
+        """)
+
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS watch_progress (
+                tmdb_id       INTEGER NOT NULL,
+                rel_path      TEXT    NOT NULL,
+                position_ms   INTEGER NOT NULL DEFAULT 0,
+                duration_ms   INTEGER NOT NULL DEFAULT 0,
+                watched       BOOLEAN NOT NULL DEFAULT 0,
+                updated_at    TEXT    NOT NULL,
+                PRIMARY KEY (tmdb_id, rel_path),
+                FOREIGN KEY (tmdb_id) REFERENCES media_items(tmdb_id)
+            )
+        """)
+
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_progress_updated
+            ON watch_progress(updated_at DESC)
+        """)
+        await db.execute("""
+            CREATE INDEX IF NOT EXISTS idx_progress_watched
+            ON watch_progress(watched, updated_at DESC)
+        """)
+
         await db.commit()
+
         # Migration: add stream_data column to existing databases
         try:
             await db.execute("ALTER TABLE jobs ADD COLUMN stream_data TEXT")
@@ -162,3 +223,108 @@ async def delete_job(job_id: str) -> bool:
         cursor = await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         await db.commit()
         return cursor.rowcount > 0
+
+
+# ── Media Items ──────────────────────────────────────────────────────────────
+
+async def upsert_media_item(
+    tmdb_id: int,
+    title: str,
+    year: Optional[int],
+    media_type: str,
+    folder_name: str,
+    overview: Optional[str] = None,
+    poster_path: Optional[str] = None,
+    imdb_id: Optional[str] = None,
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO media_items (tmdb_id, title, year, type, overview, poster_path,
+                                     imdb_id, folder_name, added_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tmdb_id) DO UPDATE SET
+                title=excluded.title, year=excluded.year, type=excluded.type,
+                overview=excluded.overview, poster_path=excluded.poster_path,
+                imdb_id=excluded.imdb_id, folder_name=excluded.folder_name,
+                updated_at=excluded.updated_at
+        """, (tmdb_id, title, year, media_type, overview, poster_path,
+              imdb_id, folder_name, now, now))
+        await db.commit()
+
+
+async def get_media_item(tmdb_id: int) -> Optional[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM media_items WHERE tmdb_id = ?", (tmdb_id,)) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def get_all_media_items(media_type: Optional[str] = None) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if media_type:
+            async with db.execute(
+                "SELECT * FROM media_items WHERE type = ? ORDER BY title", (media_type,)
+            ) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+        else:
+            async with db.execute("SELECT * FROM media_items ORDER BY title") as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
+
+# ── Watch Progress ───────────────────────────────────────────────────────────
+
+async def save_watch_progress(
+    tmdb_id: int,
+    rel_path: str,
+    position_ms: int,
+    duration_ms: int,
+    watch_threshold: float = 0.85,
+) -> bool:
+    """Save progress. Returns True if the item is now marked as watched."""
+    now = _now()
+    watched = (duration_ms > 0 and position_ms / duration_ms >= watch_threshold)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            INSERT INTO watch_progress (tmdb_id, rel_path, position_ms, duration_ms, watched, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(tmdb_id, rel_path) DO UPDATE SET
+                position_ms=excluded.position_ms, duration_ms=excluded.duration_ms,
+                watched=excluded.watched, updated_at=excluded.updated_at
+        """, (tmdb_id, rel_path, position_ms, duration_ms, watched, now))
+        await db.commit()
+    return watched
+
+
+async def get_watch_progress(tmdb_id: int, rel_path: Optional[str] = None) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        if rel_path:
+            async with db.execute(
+                "SELECT * FROM watch_progress WHERE tmdb_id = ? AND rel_path = ?",
+                (tmdb_id, rel_path),
+            ) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+        else:
+            async with db.execute(
+                "SELECT * FROM watch_progress WHERE tmdb_id = ? ORDER BY rel_path",
+                (tmdb_id,),
+            ) as cur:
+                return [dict(r) for r in await cur.fetchall()]
+
+
+async def get_continue_watching(limit: int = 20) -> list[dict]:
+    """Return items with partial progress (not fully watched), most recent first."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT wp.*, mi.title, mi.type, mi.poster_path, mi.year
+            FROM watch_progress wp
+            JOIN media_items mi ON wp.tmdb_id = mi.tmdb_id
+            WHERE wp.watched = 0 AND wp.position_ms > 0
+            ORDER BY wp.updated_at DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            return [dict(r) for r in await cur.fetchall()]

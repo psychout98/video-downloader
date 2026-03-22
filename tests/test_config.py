@@ -70,15 +70,29 @@ class TestSettings:
         assert "mpc-be" in s.MPC_BE_EXE.lower() or "mpc" in s.MPC_BE_EXE.lower()
 
 
-class TestSettingsRemovedFields:
-    """Verify deprecated settings fields have been removed."""
+class TestSettingsNewFields:
+    """Verify new directory settings exist."""
 
-    def test_no_progress_file_setting(self):
-        """Settings has no PROGRESS_FILE attribute (migrated to SQLite)."""
+    def test_has_media_dir_setting(self):
+        """Settings has MEDIA_DIR attribute."""
         from server.config import Settings
 
         s = Settings()
-        assert not hasattr(s, "PROGRESS_FILE"), "PROGRESS_FILE should be removed — progress is now in SQLite"
+        assert hasattr(s, "MEDIA_DIR"), "MEDIA_DIR should exist"
+
+    def test_has_archive_dir_setting(self):
+        """Settings has ARCHIVE_DIR attribute."""
+        from server.config import Settings
+
+        s = Settings()
+        assert hasattr(s, "ARCHIVE_DIR"), "ARCHIVE_DIR should exist"
+
+    def test_has_migrated_flag(self):
+        """Settings has MIGRATED flag."""
+        from server.config import Settings
+
+        s = Settings()
+        assert hasattr(s, "MIGRATED"), "MIGRATED flag should exist"
 
 
 class TestReloadSettings:

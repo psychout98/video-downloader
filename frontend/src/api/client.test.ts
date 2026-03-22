@@ -473,7 +473,7 @@ describe('apiClient', () => {
       expect(fetchMock).toHaveBeenCalledWith('/api/mpc/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: '/path/movie.mkv', playlist: undefined }),
+        body: JSON.stringify({ path: '/path/movie.mkv', playlist: undefined }),  // string path → path-based request
       });
       expect(result).toEqual({ ok: true, launched: true });
     });
