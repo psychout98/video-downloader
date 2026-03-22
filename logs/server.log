@@ -11,3 +11,81 @@
 2026-03-22 10:00:22,709 [INFO] server.core.library_manager: Library scan: 0 items
 2026-03-22 10:00:44,670 [INFO] server.core.job_processor: JobProcessor stopping -- 0 active jobs
 2026-03-22 10:00:44,673 [INFO] server.main: Media Downloader stopped
+2026-03-22 17:35:45,160 [INFO] server.main: Media Downloader starting …
+2026-03-22 17:35:45,199 [INFO] server.core.job_processor: JobProcessor started
+2026-03-22 17:35:45,200 [INFO] server.core.watch_tracker: WatchTracker started (threshold=85%)
+2026-03-22 17:35:45,208 [INFO] server.core.library_manager: Library scan: 0 items
+2026-03-22 17:35:45,208 [INFO] server.main: Startup library scan complete
+2026-03-22 17:36:01,606 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/search/multi?api_key=7a6b69edec44fe48df3d5a2be162dd7f&query=shrek&include_adult=false "HTTP/1.1 200 OK"
+2026-03-22 17:36:01,636 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/movie/808/external_ids?api_key=7a6b69edec44fe48df3d5a2be162dd7f "HTTP/1.1 200 OK"
+2026-03-22 17:36:01,661 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/movie/808?api_key=7a6b69edec44fe48df3d5a2be162dd7f "HTTP/1.1 200 OK"
+2026-03-22 17:36:01,878 [INFO] httpx: HTTP Request: GET https://torrentio.strem.fun/realdebrid=KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q|sort=qualitysize|limit=20/stream/movie/tt0126029.json "HTTP/1.1 200 OK"
+2026-03-22 17:36:01,886 [INFO] server.clients.torrentio_client: Torrentio returned 36 streams for Shrek (2001) (cached_only=True)
+2026-03-22 17:36:32,804 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/search/multi?api_key=7a6b69edec44fe48df3d5a2be162dd7f&query=shrek&include_adult=false "HTTP/1.1 200 OK"
+2026-03-22 17:36:32,833 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/movie/808/external_ids?api_key=7a6b69edec44fe48df3d5a2be162dd7f "HTTP/1.1 200 OK"
+2026-03-22 17:36:32,858 [INFO] httpx: HTTP Request: GET https://api.themoviedb.org/3/movie/808?api_key=7a6b69edec44fe48df3d5a2be162dd7f "HTTP/1.1 200 OK"
+2026-03-22 17:36:32,947 [INFO] httpx: HTTP Request: GET https://torrentio.strem.fun/realdebrid=KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q|sort=qualitysize|limit=20/stream/movie/tt0126029.json "HTTP/1.1 200 OK"
+2026-03-22 17:36:32,951 [INFO] server.clients.torrentio_client: Torrentio returned 36 streams for Shrek (2001) (cached_only=True)
+2026-03-22 17:36:44,685 [INFO] server.routers.jobs: New job 5a98b758: user picked stream #18 for 'Shrek'
+2026-03-22 17:36:45,513 [INFO] server.core.job_processor: [job 5a98b758] Starting: Shrek (2001)
+2026-03-22 17:36:45,514 [INFO] server.core.job_processor: [job 5a98b758] Stream: [RD+] Torrentio
+1080p Shrek 2001 1080p BluRay AC3 DL x264-HDC
+👤 0 💾 7.71 GB ⚙️ T
+2026-03-22 17:36:45,514 [INFO] server.core.job_processor: [job 5a98b758] Using pre-resolved RD URL (instant cache)
+2026-03-22 17:36:45,516 [INFO] server.core.job_processor: [job 5a98b758] Downloading: Shrek 2001 1080p BluRay AC3 DL x264-HDC.mkv
+2026-03-22 17:36:45,602 [INFO] httpx: HTTP Request: GET https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv "HTTP/1.1 403 Forbidden"
+2026-03-22 17:36:45,607 [ERROR] server.core.job_processor: Job 5a98b758-13d4-441c-af36-abbd5fb04998 failed: Client error '403 Forbidden' for url 'https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+Traceback (most recent call last):
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 113, in _process
+    await asyncio.wait_for(
+    ...<2 lines>...
+    )
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py", line 488, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 199, in _run_pipeline
+    await self._download_and_organize(job_id, download_files, media, staging_dir)
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 278, in _download_and_organize
+    await self._download(job_id, dl_url, staging_path, fl_size)
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 324, in _download
+    response.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/noahheath/Workspace/video-downloader/.venv/lib/python3.14/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-03-22 17:36:45,619 [INFO] server.core.job_processor: [job 5a98b758] ERROR: Client error '403 Forbidden' for url 'https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-03-22 17:36:50,543 [INFO] server.core.job_processor: [job 5a98b758] Starting: Shrek (2001)
+2026-03-22 17:36:50,544 [INFO] server.core.job_processor: [job 5a98b758] Stream: [RD+] Torrentio
+1080p Shrek 2001 1080p BluRay AC3 DL x264-HDC
+👤 0 💾 7.71 GB ⚙️ T
+2026-03-22 17:36:50,545 [INFO] server.core.job_processor: [job 5a98b758] Using pre-resolved RD URL (instant cache)
+2026-03-22 17:36:50,546 [INFO] server.core.job_processor: [job 5a98b758] Downloading: Shrek 2001 1080p BluRay AC3 DL x264-HDC.mkv
+2026-03-22 17:36:50,634 [INFO] httpx: HTTP Request: GET https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv "HTTP/1.1 403 Forbidden"
+2026-03-22 17:36:50,636 [ERROR] server.core.job_processor: Job 5a98b758-13d4-441c-af36-abbd5fb04998 failed: Client error '403 Forbidden' for url 'https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+Traceback (most recent call last):
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 113, in _process
+    await asyncio.wait_for(
+    ...<2 lines>...
+    )
+  File "/opt/homebrew/Cellar/python@3.14/3.14.2_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/tasks.py", line 488, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 199, in _run_pipeline
+    await self._download_and_organize(job_id, download_files, media, staging_dir)
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 278, in _download_and_organize
+    await self._download(job_id, dl_url, staging_path, fl_size)
+  File "/Users/noahheath/Workspace/video-downloader/server/core/job_processor.py", line 324, in _download
+    response.raise_for_status()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/Users/noahheath/Workspace/video-downloader/.venv/lib/python3.14/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '403 Forbidden' for url 'https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-03-22 17:36:50,642 [INFO] server.core.job_processor: [job 5a98b758] ERROR: Client error '403 Forbidden' for url 'https://torrentio.strem.fun/resolve/realdebrid/KVMPAY67C7HZBGTVXN2KLNONOA6TQ4UETE227I5NVAPGKGUCGP4Q/f13cfd17be63ae804ebc775bd8f8b05b3a006cc2/null/0/Shrek%202001%201080p%20BluRay%20AC3%20DL%20x264-HDC.mkv'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403
+2026-03-22 17:38:41,525 [INFO] server.core.job_processor: JobProcessor stopping -- 0 active jobs
+2026-03-22 17:38:41,528 [INFO] server.main: Media Downloader stopped

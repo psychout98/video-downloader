@@ -101,6 +101,15 @@ export interface EpisodeInfo {
   duration_ms: number;
 }
 
+export interface MpcMediaContext {
+  tmdb_id: number | null;
+  title: string | null;
+  type: string | null;
+  poster_url: string | null;
+  season: number | null;
+  episode: number | null;
+}
+
 export interface MpcStatus {
   reachable: boolean;
   file: string | null;
@@ -114,6 +123,7 @@ export interface MpcStatus {
   duration_str: string;
   volume: number;
   muted: boolean;
+  media: MpcMediaContext | null;
 }
 
 export interface Settings {
@@ -276,4 +286,40 @@ export const apiClient = {
     return handleResponse(response);
   },
 
+  mpcNext: async (): Promise<{ ok: boolean; rel_path?: string }> => {
+    const response = await fetch('/api/mpc/next', { method: 'POST' });
+    return handleResponse(response);
+  },
+
+  mpcPrev: async (): Promise<{ ok: boolean; rel_path?: string }> => {
+    const response = await fetch('/api/mpc/prev', { method: 'POST' });
+    return handleResponse(response);
+  },
+
+  // -- Settings --
+  getSettings: async (): Promise<Settings> => {
+    const response = await fetch('/api/settings');
+    return handleResponse(response);
+  },
+
+  saveSettings: async (updates: Record<string, string | number | boolean>): Promise<{ ok: boolean; written: string[] }> => {
+    const response = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ updates }),
+    });
+    return handleResponse(response);
+  },
+
+  testRdKey: async (): Promise<{ ok: boolean; key_suffix: string; username?: string; error?: string }> => {
+    const response = await fetch('/api/settings/test-rd');
+    return handleResponse(response);
+  },
+
+  // -- Logs --
+  getLogs: async (lines = 100): Promise<string[]> => {
+    const response = await fetch(`/api/logs?lines=${lines}`);
+    const data = await handleResponse<{ lines: string[]; total?: number; note?: string }>(response);
+    return data.lines;
+  },
 };
