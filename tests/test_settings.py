@@ -20,8 +20,7 @@ class TestSettingsGetEndpoint:
         data = response.json()
         expected_keys = [
             "TMDB_API_KEY", "REAL_DEBRID_API_KEY",
-            "MOVIES_DIR", "TV_DIR", "ANIME_DIR",
-            "MOVIES_DIR_ARCHIVE", "TV_DIR_ARCHIVE", "ANIME_DIR_ARCHIVE",
+            "MEDIA_DIR", "ARCHIVE_DIR",
             "DOWNLOADS_DIR", "POSTERS_DIR",
             "MPC_BE_URL", "MPC_BE_EXE",
             "WATCH_THRESHOLD", "HOST", "PORT", "MAX_CONCURRENT_DOWNLOADS",

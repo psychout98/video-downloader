@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import SettingsConfigDict
 
 # Absolute path to the project .env — two levels up from this file (server/config.py)
@@ -14,15 +14,28 @@ def _userprofile(subdir: str) -> str:
     return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media" / subdir)
 
 
+def _default_media_dir() -> str:
+    return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media")
+
+
 class Settings(BaseSettings):
     # --- Required API keys ---
     TMDB_API_KEY: str = Field(..., description="TMDB v3 API key")
     REAL_DEBRID_API_KEY: str = Field(..., description="Real-Debrid API key")
 
-    # --- Primary media dirs (fast NVMe — new downloads land here) ---
+    # --- New unified directory settings ---
+    MEDIA_DIR: str = Field(default_factory=_default_media_dir,
+                           description="Primary media directory (flat, with [tmdb_id] folders)")
+    ARCHIVE_DIR: str = Field("D:\\Media",
+                             description="Archive directory (watched content moved here)")
+
+    # --- Legacy directory settings (kept for migration) ---
     MOVIES_DIR: str = Field(default_factory=lambda: _userprofile("Movies"))
     TV_DIR: str = Field(default_factory=lambda: _userprofile("TV Shows"))
     ANIME_DIR: str = Field(default_factory=lambda: _userprofile("Anime"))
+    MOVIES_DIR_ARCHIVE: str = Field("D:\\Media\\Movies")
+    TV_DIR_ARCHIVE: str = Field("D:\\Media\\TV Shows")
+    ANIME_DIR_ARCHIVE: str = Field("D:\\Media\\Anime")
 
     # Temporary download staging area
     DOWNLOADS_DIR: str = Field(default_factory=lambda: _userprofile(r"Downloads\.staging"))
@@ -31,12 +44,8 @@ class Settings(BaseSettings):
     POSTERS_DIR: str = Field(default_factory=lambda: str(_DATA_DIR / "posters"))
 
     # Per-file watch-progress database (JSON) — inside the data/ folder
+    # (legacy, kept for migration — progress now lives in SQLite)
     PROGRESS_FILE: str = Field(default_factory=lambda: str(_DATA_DIR / "playback.json"))
-
-    # --- Archive media dirs (SATA — watched content is moved here) ---
-    MOVIES_DIR_ARCHIVE: str = Field("D:\\Media\\Movies")
-    TV_DIR_ARCHIVE: str = Field("D:\\Media\\TV Shows")
-    ANIME_DIR_ARCHIVE: str = Field("D:\\Media\\Anime")
 
     # How much of a file must be watched before it's archived (0.0 – 1.0)
     WATCH_THRESHOLD: float = Field(0.85, description="Fraction of runtime considered 'watched'")
@@ -58,6 +67,9 @@ class Settings(BaseSettings):
         r"C:\Program Files\MPC-BE x64\mpc-be64.exe",
         description="Full path to the MPC-BE executable (used to launch it when closed)",
     )
+
+    # --- Migration flag ---
+    MIGRATED: bool = Field(False, description="Set to true after migration to new layout")
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
