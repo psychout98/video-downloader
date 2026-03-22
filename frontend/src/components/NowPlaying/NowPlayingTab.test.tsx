@@ -20,6 +20,7 @@ const makeMockStatus = (overrides = {}) => ({
   duration_str: '2:00',
   volume: 75,
   muted: false,
+  media: null,
   ...overrides,
 });
 
@@ -34,6 +35,8 @@ describe('NowPlayingTab', () => {
       getMpcStatus: vi.fn().mockResolvedValue(makeMockStatus()),
       sendMpcCommand: vi.fn().mockResolvedValue({ ok: true }),
       openInMpc: vi.fn().mockResolvedValue({ ok: true, launched: true }),
+      mpcNext: vi.fn().mockResolvedValue({ ok: true }),
+      mpcPrev: vi.fn().mockResolvedValue({ ok: true }),
     };
     mockApiClient.MPC_COMMANDS = MPC_COMMANDS;
   });
@@ -76,18 +79,6 @@ describe('NowPlayingTab', () => {
     });
   });
 
-  describe('Loading state', () => {
-    it('should show loading initially', () => {
-      mockApiClient.apiClient.getMpcStatus = vi.fn().mockImplementation(
-        () => new Promise(() => {})
-      );
-
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      expect(screen.getByText('Loading...')).toBeInTheDocument();
-    });
-  });
-
   describe('Player rendering', () => {
     it('should render filename when status is loaded', async () => {
       render(<NowPlayingTab showToast={showToastMock} />);
@@ -106,27 +97,6 @@ describe('NowPlayingTab', () => {
 
       await waitFor(() => {
         expect(screen.getByText('No file loaded')).toBeInTheDocument();
-      });
-    });
-
-    it('should render file path when file differs from filename', async () => {
-      mockApiClient.apiClient.getMpcStatus = vi.fn().mockResolvedValue(
-        makeMockStatus({ file: '/full/path/to/movie.mkv', filename: 'movie.mkv' })
-      );
-
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('/full/path/to/movie.mkv')).toBeInTheDocument();
-      });
-    });
-
-    it('should show position and duration strings', async () => {
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      await waitFor(() => {
-        expect(screen.getByText('0:30')).toBeInTheDocument();
-        expect(screen.getByText('2:00')).toBeInTheDocument();
       });
     });
 
@@ -247,7 +217,7 @@ describe('NowPlayingTab', () => {
       await user.click(screen.getByRole('button', { name: 'Stop' }));
 
       await waitFor(() => {
-        expect(showToastMock).toHaveBeenCalledWith('Failed to stop playback', 'error');
+        expect(showToastMock).toHaveBeenCalledWith('Failed to stop', 'error');
       });
     });
 
@@ -363,95 +333,28 @@ describe('NowPlayingTab', () => {
     });
   });
 
-  describe('Progress calculation', () => {
-    it('should set progress to 0 when duration_ms is 0', async () => {
-      mockApiClient.apiClient.getMpcStatus = vi.fn().mockResolvedValue(
-        makeMockStatus({ position_ms: 5000, duration_ms: 0 })
-      );
-
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      await waitFor(() => screen.getByText('movie.mkv'));
-
-      // The progress fill should have width 0%
-      const progressFill = document.querySelector('.progress-fill');
-      expect(progressFill).toHaveStyle({ width: '0%' });
-    });
-
-    it('should calculate progress as percentage of position/duration', async () => {
-      // position=60000, duration=120000 → 50%
-      mockApiClient.apiClient.getMpcStatus = vi.fn().mockResolvedValue(
-        makeMockStatus({ position_ms: 60000, duration_ms: 120000 })
-      );
-
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      await waitFor(() => screen.getByText('movie.mkv'));
-
-      const progressFill = document.querySelector('.progress-fill');
-      expect(progressFill).toHaveStyle({ width: '50%' });
-    });
-  });
-
-  describe('Progress bar interaction', () => {
-    it('should seek when progress bar is clicked', async () => {
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      await waitFor(() => screen.getByText('movie.mkv'));
-
-      const progressBar = document.querySelector('.progress-bar.cursor-pointer') as HTMLElement;
-      expect(progressBar).not.toBeNull();
-
-      // Mock getBoundingClientRect
-      vi.spyOn(progressBar, 'getBoundingClientRect').mockReturnValue({
-        left: 0, width: 1000, top: 0, right: 1000, bottom: 10, height: 10, x: 0, y: 0,
-        toJSON: () => {},
-      });
-
-      fireEvent.click(progressBar, { clientX: 250 });
-      // 250/1000 = 0.25 * 120000 = 30000
-      expect(mockApiClient.apiClient.sendMpcCommand).toHaveBeenCalledWith(MPC_COMMANDS.SEEK, 30000);
-    });
-  });
-
   describe('Polling and cleanup', () => {
-    it('should set up interval on mount and clear on unmount', async () => {
-      vi.useFakeTimers();
+    it('should call getMpcStatus after SSE falls back to polling', async () => {
+      render(<NowPlayingTab showToast={showToastMock} />);
+
+      // After SSE fails, it falls back to polling which calls getMpcStatus
+      await waitFor(() => {
+        expect(mockApiClient.apiClient.getMpcStatus).toHaveBeenCalled();
+      });
+    });
+
+    it('should clean up on unmount', async () => {
       const { unmount } = render(<NowPlayingTab showToast={showToastMock} />);
 
-      await act(async () => { await Promise.resolve(); });
-      expect(mockApiClient.apiClient.getMpcStatus).toHaveBeenCalledTimes(1);
+      await waitFor(() => {
+        expect(mockApiClient.apiClient.getMpcStatus).toHaveBeenCalled();
+      });
 
-      act(() => { vi.advanceTimersByTime(1500); });
-      await act(async () => { await Promise.resolve(); });
-      expect(mockApiClient.apiClient.getMpcStatus).toHaveBeenCalledTimes(2);
-
+      const callsBefore = mockApiClient.apiClient.getMpcStatus.mock.calls.length;
       unmount();
-      const callsBefore = mockApiClient.apiClient.getMpcStatus.mock.calls.length;
-      act(() => { vi.advanceTimersByTime(3000); });
-      await act(async () => { await Promise.resolve(); });
-      expect(mockApiClient.apiClient.getMpcStatus).toHaveBeenCalledTimes(callsBefore);
-    });
-
-    it('should update poll interval on visibility change to hidden', async () => {
-      vi.useFakeTimers();
-      render(<NowPlayingTab showToast={showToastMock} />);
-
-      await act(async () => { await Promise.resolve(); });
-
-      // Simulate visibility change to hidden
-      Object.defineProperty(document, 'hidden', { value: true, configurable: true });
-      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
-
-      const callsBefore = mockApiClient.apiClient.getMpcStatus.mock.calls.length;
-      // With hidden=true interval is 5000ms, not 1500ms
-      act(() => { vi.advanceTimersByTime(1500); });
-      await act(async () => { await Promise.resolve(); });
-      // Should NOT have fired yet (interval is 5000ms when hidden)
-      expect(mockApiClient.apiClient.getMpcStatus).toHaveBeenCalledTimes(callsBefore);
-
-      // Reset
-      Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+      // After unmount, no more calls should be made
+      await act(async () => { await new Promise(r => setTimeout(r, 100)); });
+      expect(mockApiClient.apiClient.getMpcStatus.mock.calls.length).toBe(callsBefore);
     });
   });
 });

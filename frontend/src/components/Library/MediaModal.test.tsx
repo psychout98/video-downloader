@@ -8,11 +8,13 @@ import { LibraryItem, SeasonGroup } from '../../api/client';
 vi.mock('../../api/client');
 
 const makeMovieItem = (overrides: Partial<LibraryItem> = {}): LibraryItem => ({
+  tmdb_id: 27205,
   title: 'Inception',
   year: 2010,
   type: 'movie',
   path: '/movies/Inception (2010)/Inception.mkv',
   folder: 'Inception (2010)',
+  folder_name: 'Inception (2010)',
   file_count: 1,
   size_bytes: 2147483648,
   poster: null,
@@ -22,11 +24,13 @@ const makeMovieItem = (overrides: Partial<LibraryItem> = {}): LibraryItem => ({
 });
 
 const makeTvItem = (overrides: Partial<LibraryItem> = {}): LibraryItem => ({
+  tmdb_id: 1396,
   title: 'Breaking Bad',
   year: 2008,
   type: 'tv',
   path: '/tv/Breaking Bad (2008)',
   folder: 'Breaking Bad (2008)',
+  folder_name: 'Breaking Bad (2008)',
   file_count: 10,
   size_bytes: 5368709120,
   poster: null,
@@ -475,6 +479,7 @@ describe('MediaModal', () => {
       await waitFor(() => {
         expect(mockApiClient.apiClient.openInMpc).toHaveBeenCalledWith(
           '/tv/bb/S01E01.mkv',
+          undefined,
           ['/tv/bb/S01E01.mkv', '/tv/bb/S01E02.mkv']
         );
       });
@@ -560,6 +565,7 @@ describe('MediaModal', () => {
       await waitFor(() => {
         expect(mockApiClient.apiClient.openInMpc).toHaveBeenCalledWith(
           '/tv/bb/S99E01.mkv',
+          undefined,
           ['/tv/bb/S99E01.mkv']
         );
       });
