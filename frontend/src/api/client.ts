@@ -101,6 +101,15 @@ export interface EpisodeInfo {
   duration_ms: number;
 }
 
+export interface MpcMediaContext {
+  tmdb_id: number | null;
+  title: string | null;
+  type: string | null;
+  poster_url: string | null;
+  season: number | null;
+  episode: number | null;
+}
+
 export interface MpcStatus {
   reachable: boolean;
   file: string | null;
@@ -114,6 +123,7 @@ export interface MpcStatus {
   duration_str: string;
   volume: number;
   muted: boolean;
+  media: MpcMediaContext | null;
 }
 
 export interface Settings {
@@ -273,6 +283,16 @@ export const apiClient = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, playlist }),
     });
+    return handleResponse(response);
+  },
+
+  mpcNext: async (): Promise<{ ok: boolean; rel_path?: string }> => {
+    const response = await fetch('/api/mpc/next', { method: 'POST' });
+    return handleResponse(response);
+  },
+
+  mpcPrev: async (): Promise<{ ok: boolean; rel_path?: string }> => {
+    const response = await fetch('/api/mpc/prev', { method: 'POST' });
     return handleResponse(response);
   },
 
