@@ -3,7 +3,14 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    // Use the test tsconfig so test files get the right types
+    // (vitest/globals, @testing-library/jest-dom, noUnusedLocals off)
+  },
   test: {
+    typecheck: {
+      tsconfig: './tsconfig.test.json',
+    },
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',
