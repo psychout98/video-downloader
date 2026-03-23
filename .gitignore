@@ -29,6 +29,9 @@ htmlcov/
 
 # Test artifacts
 MagicMock/
+frontend/test-results/
+frontend/test-results.json
+frontend/playwright-report/
 
 # macOS
 .DS_Store
