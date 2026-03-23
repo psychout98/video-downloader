@@ -30,5 +30,8 @@ htmlcov/
 # Test artifacts
 MagicMock/
 
+# Runtime
+server.pid
+
 # macOS
 .DS_Store
