@@ -13,6 +13,8 @@ __pycache__/
 # Build / dist
 dist/
 build/
+bin/
+obj/
 
 # Logs
 logs/
@@ -29,6 +31,9 @@ htmlcov/
 
 # Test artifacts
 MagicMock/
+frontend/test-results/
+frontend/test-results.json
+frontend/playwright-report/
 
 # Runtime
 server.pid

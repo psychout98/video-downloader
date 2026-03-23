@@ -107,13 +107,40 @@ class MockRealDebridClient:
         pass
 
 
+class MockMPCStatus:
+    """Mock MPCStatus that mirrors the real MPCStatus.to_dict() shape."""
+
+    def __init__(self, file: str = "", state: int = 0, reachable: bool = True):
+        self._file = file
+        self._state = state
+        self.reachable = reachable
+
+    @property
+    def file(self) -> str:
+        return self._file
+
+    def to_dict(self) -> dict:
+        return {
+            "reachable":    self.reachable,
+            "file":         self._file,
+            "filename":     self._file.split("/")[-1] if self._file else "",
+            "state":        self._state,
+            "is_playing":   self._state == 2,
+            "is_paused":    self._state == 1,
+            "position_ms":  0,
+            "duration_ms":  0,
+            "position_str": "0:00",
+            "duration_str": "0:00",
+            "volume":       100,
+            "muted":        False,
+        }
+
+
 class MockMPCClient:
     """Mock MPC-BE client."""
 
     async def get_status(self):
-        status = MagicMock()
-        status.to_dict.return_value = {"file": "test.mkv", "state": "playing"}
-        return status
+        return MockMPCStatus(file="test.mkv", state=2, reachable=True)
 
     async def command(self, command_id: int, **kwargs):
         return True

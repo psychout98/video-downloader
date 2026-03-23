@@ -70,7 +70,11 @@ public class MainViewModel : ViewModelBase, IDisposable
 
         _serverManager.StatusChanged += status =>
         {
-            Application.Current?.Dispatcher.Invoke(() => ServerStatus = status);
+            Application.Current?.Dispatcher.Invoke(() =>
+            {
+                ServerStatus = status;
+                CommandManager.InvalidateRequerySuggested();
+            });
         };
 
         Settings = new SettingsViewModel(_settingsService, _serverManager);
