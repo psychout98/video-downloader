@@ -25,9 +25,8 @@ public class AppSettingsTests
         {
             TmdbApiKey = "tmdb123",
             RealDebridApiKey = "rd456",
-            MoviesDir = "/movies",
-            TvDir = "/tv",
-            AnimeDir = "/anime",
+            MediaDir = "/media",
+            ArchiveDir = "/archive",
             Host = "localhost",
             Port = 9000,
             MaxConcurrentDownloads = 5,
@@ -38,13 +37,27 @@ public class AppSettingsTests
 
         Assert.Equal("tmdb123", dict["TMDB_API_KEY"]);
         Assert.Equal("rd456", dict["REAL_DEBRID_API_KEY"]);
-        Assert.Equal("/movies", dict["MOVIES_DIR"]);
-        Assert.Equal("/tv", dict["TV_DIR"]);
-        Assert.Equal("/anime", dict["ANIME_DIR"]);
+        Assert.Equal("/media", dict["MEDIA_DIR"]);
+        Assert.Equal("/archive", dict["ARCHIVE_DIR"]);
         Assert.Equal("localhost", dict["HOST"]);
         Assert.Equal("9000", dict["PORT"]);
         Assert.Equal("5", dict["MAX_CONCURRENT_DOWNLOADS"]);
         Assert.Equal("0.9", dict["WATCH_THRESHOLD"]);
+    }
+
+    [Fact]
+    public void ToDictionary_OmitsEmptyValues()
+    {
+        var settings = new AppSettings
+        {
+            TmdbApiKey = "tmdb123",
+            // MediaDir left as default empty string
+        };
+
+        var dict = settings.ToDictionary();
+
+        Assert.True(dict.ContainsKey("TMDB_API_KEY"));
+        Assert.False(dict.ContainsKey("MEDIA_DIR")); // empty values excluded
     }
 
     [Fact]
@@ -54,14 +67,14 @@ public class AppSettingsTests
         var dict = new Dictionary<string, string>
         {
             ["TMDB_API_KEY"] = "my_key",
-            ["MOVIES_DIR"] = "/path/to/movies",
+            ["MEDIA_DIR"] = "/path/to/media",
             ["HOST"] = "127.0.0.1",
         };
 
         settings.LoadFromDictionary(dict);
 
         Assert.Equal("my_key", settings.TmdbApiKey);
-        Assert.Equal("/path/to/movies", settings.MoviesDir);
+        Assert.Equal("/path/to/media", settings.MediaDir);
         Assert.Equal("127.0.0.1", settings.Host);
     }
 
@@ -147,12 +160,8 @@ public class AppSettingsTests
         {
             TmdbApiKey = "key1",
             RealDebridApiKey = "key2",
-            MoviesDir = "/movies",
-            TvDir = "/tv",
-            AnimeDir = "/anime",
-            MoviesDirArchive = "/archive/movies",
-            TvDirArchive = "/archive/tv",
-            AnimeDirArchive = "/archive/anime",
+            MediaDir = "/media",
+            ArchiveDir = "/archive",
             DownloadsDir = "/downloads",
             PostersDir = "/posters",
             MpcBeUrl = "http://localhost:13579",
@@ -169,12 +178,8 @@ public class AppSettingsTests
 
         Assert.Equal(original.TmdbApiKey, restored.TmdbApiKey);
         Assert.Equal(original.RealDebridApiKey, restored.RealDebridApiKey);
-        Assert.Equal(original.MoviesDir, restored.MoviesDir);
-        Assert.Equal(original.TvDir, restored.TvDir);
-        Assert.Equal(original.AnimeDir, restored.AnimeDir);
-        Assert.Equal(original.MoviesDirArchive, restored.MoviesDirArchive);
-        Assert.Equal(original.TvDirArchive, restored.TvDirArchive);
-        Assert.Equal(original.AnimeDirArchive, restored.AnimeDirArchive);
+        Assert.Equal(original.MediaDir, restored.MediaDir);
+        Assert.Equal(original.ArchiveDir, restored.ArchiveDir);
         Assert.Equal(original.DownloadsDir, restored.DownloadsDir);
         Assert.Equal(original.PostersDir, restored.PostersDir);
         Assert.Equal(original.MpcBeUrl, restored.MpcBeUrl);

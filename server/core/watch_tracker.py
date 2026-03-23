@@ -51,11 +51,9 @@ class WatchTracker:
         self._progress = progress_store
         self._running = False
 
-        # (primary_dir, archive_dir) pairs — order matters for path matching
+        # (primary_dir, archive_dir) pairs
         self._dir_pairs: list[tuple[Path, Path]] = [
-            (Path(settings.MOVIES_DIR),  Path(settings.MOVIES_DIR_ARCHIVE)),
-            (Path(settings.TV_DIR),      Path(settings.TV_DIR_ARCHIVE)),
-            (Path(settings.ANIME_DIR),   Path(settings.ANIME_DIR_ARCHIVE)),
+            (Path(settings.MEDIA_DIR), Path(settings.ARCHIVE_DIR)),
         ]
 
         self._prev_file: Optional[str] = None
@@ -181,7 +179,10 @@ class WatchTracker:
                     except Exception:
                         pass
 
-            is_movie = (primary_dir == Path(settings.MOVIES_DIR))
+            # Detect if this is a movie by checking folder structure depth
+            # Movies: MEDIA_DIR/Title (Year)/file.mkv (rel depth = 1)
+            # TV:     MEDIA_DIR/Show/Season XX/file.mkv (rel depth >= 2)
+            is_movie = (len(rel.parts) <= 2)
 
             if is_movie:
                 # Move any remaining non-video files (poster, etc.) and remove folder

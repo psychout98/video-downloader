@@ -122,7 +122,11 @@ public class SettingsService
         try
         {
             using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-            var payload = settings.ToDictionary();
+            // Server expects {"updates": {KEY: value}} format
+            var payload = new Dictionary<string, object>
+            {
+                ["updates"] = settings.ToDictionary()
+            };
             var json = JsonSerializer.Serialize(payload);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             await client.PostAsync($"http://127.0.0.1:{port}/api/settings", content);

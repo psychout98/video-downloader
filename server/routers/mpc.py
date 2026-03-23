@@ -102,14 +102,8 @@ def _strip_windows_paths(media: dict | None) -> dict | None:
 def _find_library_folder(tmdb_id: int) -> Path | None:
     """Find the library folder for a given tmdb_id by scanning known dirs."""
     search_dirs = [
-        settings.MOVIES_DIR, settings.TV_DIR, settings.ANIME_DIR,
+        settings.MEDIA_DIR, settings.ARCHIVE_DIR,
     ]
-    if hasattr(settings, "MOVIES_DIR_ARCHIVE"):
-        search_dirs.extend([
-            settings.MOVIES_DIR_ARCHIVE,
-            settings.TV_DIR_ARCHIVE,
-            settings.ANIME_DIR_ARCHIVE,
-        ])
 
     for d in search_dirs:
         parent = Path(d)
