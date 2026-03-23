@@ -207,19 +207,19 @@ jobs:
       - name: Run installer tests
         env:
           MD_INSTALLER_PATH: ${{ github.workspace }}\dist\MediaDownloader-Setup.exe
-        run: python -m pytest tests/integration/test_installer.py -v --tb=short
+        run: python -m pytest tests/integration/test_installer.py -v --tb=short -o "addopts="
 
       - name: Run WPF app tests
         env:
           MD_APP_EXE_PATH: ${{ github.workspace }}\build\publish\MediaDownloader.exe
-        run: python -m pytest tests/integration/test_wpf_app.py -v --tb=short
+        run: python -m pytest tests/integration/test_wpf_app.py -v --tb=short -o "addopts="
 
       - name: Run MPC-BE integration tests
         env:
           MD_BACKEND_URL: http://127.0.0.1:8000
           TEST_MEDIA_FILE: ${{ github.workspace }}\test_media.mp4
           MPC_BE_EXE: ${{ steps.mpc.outputs.mpc_exe }}
-        run: python -m pytest tests/integration/test_mpc_integration.py -v --tb=short
+        run: python -m pytest tests/integration/test_mpc_integration.py -v --tb=short -o "addopts="
 
       # ── Diagnostics on failure ─────────────────────────────────────
       - name: Upload backend logs on failure
