@@ -4,17 +4,6 @@ on:
   workflow_dispatch:
   workflow_call:
 
-  push:
-    paths:
-      - 'requirements.txt'
-      - 'run_server.bat'
-      - 'stop_server.bat'
-      - 'server/**'
-      - 'frontend/**'
-      - 'app/**'
-      - 'installer/**'
-      - '.github/workflows/build-installer.yml'
-
 jobs:
   build:
     runs-on: windows-latest
