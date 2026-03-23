@@ -174,7 +174,22 @@ jobs:
             Write-Host "Will retry in tests..."
           }
 
-      # ── Start backend server ───────────────────────────────────────
+      # ── Run integration tests ──────────────────────────────────────
+      # NOTE: WPF tests run BEFORE the backend is started because the WPF
+      # app starts its own backend server (12.4–12.6 test lifecycle controls).
+      # Starting a backend here would cause a port 8000 conflict.
+
+      - name: Run installer tests
+        env:
+          MD_INSTALLER_PATH: ${{ github.workspace }}\dist\MediaDownloader-Setup.exe
+        run: python -m pytest tests/integration/test_installer.py -v --tb=short -o "addopts="
+
+      - name: Run WPF app tests
+        env:
+          MD_APP_EXE_PATH: ${{ github.workspace }}\build\publish\MediaDownloader.exe
+        run: python -m pytest tests/integration/test_wpf_app.py -v --tb=short -o "addopts="
+
+      # ── Start backend server (for MPC-BE tests only) ────────────────
       - name: Start backend server
         run: |
           # Start uvicorn in the background
@@ -203,17 +218,6 @@ jobs:
             Get-Content backend_stderr.log -ErrorAction SilentlyContinue
             exit 1
           }
-
-      # ── Run integration tests ──────────────────────────────────────
-      - name: Run installer tests
-        env:
-          MD_INSTALLER_PATH: ${{ github.workspace }}\dist\MediaDownloader-Setup.exe
-        run: python -m pytest tests/integration/test_installer.py -v --tb=short -o "addopts="
-
-      - name: Run WPF app tests
-        env:
-          MD_APP_EXE_PATH: ${{ github.workspace }}\build\publish\MediaDownloader.exe
-        run: python -m pytest tests/integration/test_wpf_app.py -v --tb=short -o "addopts="
 
       - name: Run MPC-BE integration tests
         env:
