@@ -19,7 +19,6 @@ Run:
 """
 from __future__ import annotations
 
-import subprocess
 import time
 
 import psutil
@@ -43,7 +42,37 @@ skip_no_pywinauto = pytest.mark.skipif(
 )
 
 
-# ── Helper fixture ────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _wait_for_status_text(main_window, pattern: str, timeout: int = 30) -> bool:
+    """Poll until a Text element matching *pattern* appears, or timeout."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        el = main_window.child_window(title_re=pattern, control_type="Text")
+        if el.exists(timeout=0):
+            return True
+        time.sleep(1)
+    return False
+
+
+def _click_start_and_wait(main_window, timeout: int = 30) -> None:
+    """Click Start and wait for 'Running' status."""
+    start_btn = main_window.child_window(title="Start", control_type="Button")
+    start_btn.click_input()
+    assert _wait_for_status_text(main_window, ".*Running.*", timeout=timeout), \
+        "Server did not start — 'Running' not found"
+
+
+def _click_stop_and_wait(main_window, timeout: int = 30) -> None:
+    """Click Stop and wait for 'Stopped' status."""
+    stop_btn = main_window.child_window(title="Stop", control_type="Button")
+    stop_btn.click_input()
+    assert _wait_for_status_text(main_window, ".*Stopped.*", timeout=timeout), \
+        "Server did not stop — 'Stopped' not found"
+
+
+# ── Fixture ───────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture()
@@ -55,6 +84,7 @@ def app_window(app_exe_path):
 
     yield app, main_window
 
+    # Teardown: stop server if running, then kill the app
     try:
         stop_btn = main_window.child_window(title="Stop", control_type="Button")
         if stop_btn.exists(timeout=2):
@@ -67,6 +97,8 @@ def app_window(app_exe_path):
         kill_process_tree(proc)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
+    # Extra settle time so ports are released before the next test
+    time.sleep(2)
 
 
 # ── Feature 12: WPF Desktop App ──────────────────────────────────────────
@@ -110,50 +142,29 @@ class TestFeature12_WPFDesktopApp:
     def test_12_4_stop_button_stops_server(self, app_window):
         """12.4 — Stop button stops the backend server."""
         _, main_window = app_window
-
-        # Start first so we can stop
-        start_btn = main_window.child_window(title="Start", control_type="Button")
-        start_btn.click_input()
-        time.sleep(5)
-
-        stop_btn = main_window.child_window(title="Stop", control_type="Button")
-        stop_btn.click_input()
-        time.sleep(3)
-
-        stopped_text = main_window.child_window(title_re=".*Stopped.*", control_type="Text")
-        assert stopped_text.exists(timeout=15), "Server did not stop — 'Stopped' not found"
+        _click_start_and_wait(main_window)
+        _click_stop_and_wait(main_window)
 
     def test_12_5_start_button_starts_server(self, app_window):
         """12.5 — Start button starts the backend server."""
         _, main_window = app_window
-
-        start_btn = main_window.child_window(title="Start", control_type="Button")
-        start_btn.click_input()
-        time.sleep(5)
-
-        running_text = main_window.child_window(title_re=".*Running.*", control_type="Text")
-        assert running_text.exists(timeout=15), "Server did not start — 'Running' not found"
+        _click_start_and_wait(main_window)
 
     def test_12_6_restart_button_restarts_server(self, app_window):
         """12.6 — Restart button restarts the backend server."""
         _, main_window = app_window
-
-        # Start first
-        start_btn = main_window.child_window(title="Start", control_type="Button")
-        start_btn.click_input()
-        time.sleep(5)
+        _click_start_and_wait(main_window)
 
         restart_btn = main_window.child_window(title="Restart", control_type="Button")
         restart_btn.click_input()
-        time.sleep(5)
 
-        running_text = main_window.child_window(title_re=".*Running.*", control_type="Text")
-        assert running_text.exists(timeout=15), "Server did not restart — 'Running' not found"
+        # Restart may briefly show "Stopped" then "Running" — just wait for Running
+        assert _wait_for_status_text(main_window, ".*Running.*", timeout=30), \
+            "Server did not restart — 'Running' not found"
 
     def test_12_7_open_webui_button_present(self, app_window):
         """12.7 — Open WebUI button launches the frontend in a browser."""
         _, main_window = app_window
-
         btn = main_window.child_window(title="Open Web UI", control_type="Button")
         assert btn.exists(timeout=5), "Open Web UI button not found"
 
@@ -163,13 +174,11 @@ class TestFeature12_WPFDesktopApp:
         """12.8 — Settings tab displays current configuration values correctly."""
         _, main_window = app_window
 
-        # Navigate to Settings tab
         tab_control = main_window.child_window(control_type="Tab")
         settings_tab = tab_control.child_window(title="Settings", control_type="TabItem")
         settings_tab.click_input()
         time.sleep(0.5)
 
-        # Verify key sections are visible
         for section in ("API Keys", "Library Directories", "MPC-BE"):
             label = main_window.child_window(title=section, control_type="Text")
             assert label.exists(timeout=5), f"Settings section '{section}' not found"
