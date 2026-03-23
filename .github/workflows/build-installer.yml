@@ -3,6 +3,9 @@ name: Build Installer & Update Package
 on:
   workflow_dispatch:
 
+  release:
+    types: [published]
+
   push:
     paths:
       - 'requirements.txt'
@@ -21,6 +24,20 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "release") {
+            $version = "${{ github.event.release.tag_name }}"
+          } else {
+            $version = git describe --tags --always
+          }
+          Write-Host "Version: $version"
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
 
       # ── Frontend build ───────────────────────────────────────────────
       - name: Set up Node.js
@@ -57,8 +74,7 @@ jobs:
       # ── Write version file ──────────────────────────────────────────
       - name: Write version file
         run: |
-          $version = git describe --tags --always
-          $version | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
+          "${{ steps.version.outputs.VERSION }}" | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
 
       # ── Inno Setup installer ────────────────────────────────────────
       - name: Build installer with Inno Setup
@@ -68,8 +84,7 @@ jobs:
       # ── Update package (for in-app updates) ─────────────────────────
       - name: Create update package
         run: |
-          $version = git describe --tags --always
-          $version | Out-File -FilePath .version -NoNewline -Encoding utf8
+          "${{ steps.version.outputs.VERSION }}" | Out-File -FilePath .version -NoNewline -Encoding utf8
           Compress-Archive `
             -Path server, requirements.txt, run_server.bat, stop_server.bat, .version `
             -DestinationPath dist/MediaDownloader-update.zip `
@@ -89,3 +104,14 @@ jobs:
           name: MediaDownloader-Update
           path: dist/MediaDownloader-update.zip
           retention-days: 30
+
+      # ── Attach assets to GitHub Release ────────────────────────────
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" `
+            dist/MediaDownloader-Setup.exe `
+            dist/MediaDownloader-update.zip `
+            --clobber
