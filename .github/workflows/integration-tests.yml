@@ -4,16 +4,6 @@ on:
   workflow_dispatch:
   workflow_call:
 
-  push:
-    branches: [main]
-    paths:
-      - 'server/**'
-      - 'app/**'
-      - 'installer/**'
-      - 'tests/integration/**'
-      - 'requirements-integration.txt'
-      - '.github/workflows/integration-tests.yml'
-
   pull_request:
     paths:
       - 'server/**'
