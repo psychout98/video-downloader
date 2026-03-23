@@ -47,8 +47,8 @@ jobs:
       # ── Write version file ──────────────────────────────────────────
       - name: Write version file
         run: |
-          $sha = git rev-parse --short HEAD
-          $sha | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
+          $version = git describe --tags --always
+          $version | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
 
       # ── Inno Setup installer ────────────────────────────────────────
       - name: Build installer with Inno Setup
@@ -58,8 +58,8 @@ jobs:
       # ── Update package (for in-app updates) ─────────────────────────
       - name: Create update package
         run: |
-          $sha = git rev-parse --short HEAD
-          $sha | Out-File -FilePath .version -NoNewline -Encoding utf8
+          $version = git describe --tags --always
+          $version | Out-File -FilePath .version -NoNewline -Encoding utf8
           Compress-Archive `
             -Path server, requirements.txt, run_server.bat, stop_server.bat, .version `
             -DestinationPath dist/MediaDownloader-update.zip `

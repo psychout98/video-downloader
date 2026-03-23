@@ -52,6 +52,9 @@ public class ServerManager : IDisposable
 
         var python = File.Exists(VenvPython) ? VenvPython : SystemPython;
 
+        // Ensure pip dependencies are installed before starting
+        await EnsureDependenciesAsync(python);
+
         var psi = new ProcessStartInfo
         {
             FileName = python,
@@ -177,6 +180,53 @@ public class ServerManager : IDisposable
         var newStatus = healthy ? ServerStatus.Running : ServerStatus.Stopped;
         if (newStatus != Status)
             SetStatus(newStatus);
+    }
+
+    private async Task EnsureDependenciesAsync(string python)
+    {
+        var requirementsPath = Path.Combine(_installDir, "requirements.txt");
+        if (!File.Exists(requirementsPath)) return;
+
+        try
+        {
+            // Quick check: can Python import uvicorn?
+            var checkPsi = new ProcessStartInfo
+            {
+                FileName = python,
+                Arguments = "-c \"import uvicorn\"",
+                WorkingDirectory = _installDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+            };
+            var checkProc = Process.Start(checkPsi);
+            if (checkProc != null)
+            {
+                await checkProc.WaitForExitAsync();
+                if (checkProc.ExitCode == 0) return; // uvicorn available, skip install
+            }
+
+            // uvicorn missing — install dependencies
+            var venvPip = Path.Combine(_installDir, ".venv", "Scripts", "pip.exe");
+            var pipExe = File.Exists(venvPip) ? venvPip : null;
+            if (pipExe == null) return;
+
+            var pipPsi = new ProcessStartInfo
+            {
+                FileName = pipExe,
+                Arguments = $"install -r \"{requirementsPath}\" --quiet",
+                WorkingDirectory = _installDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            var pipProc = Process.Start(pipPsi);
+            if (pipProc != null)
+                await pipProc.WaitForExitAsync();
+        }
+        catch
+        {
+            // Best-effort — if this fails, StartAsync will fail with a clearer error
+        }
     }
 
     private void SetStatus(ServerStatus status)
