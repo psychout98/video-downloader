@@ -152,12 +152,15 @@ public class UpdateService
         var scriptPath = Path.Combine(Path.GetTempPath(), $"MediaDownloader-update-{Guid.NewGuid()}.bat");
         var exeName = "MediaDownloader.exe";
 
+        var versionFile = Path.Combine(installDir, ".version");
         var script = $"""
             @echo off
             xcopy "{sourceDir}\*" "{installDir}\" /E /Y /I /EXCLUDE:{scriptPath}.exclude
-            echo {version}> "{Path.Combine(installDir, ".version")}"
+            if errorlevel 2 exit /b %errorlevel%
+            > "{versionFile}" (echo {version})
             del "%~f0.exclude" 2>nul
             del "%~f0" 2>nul
+            exit /b 0
             """;
 
         // Exclude the running exe from being overwritten
