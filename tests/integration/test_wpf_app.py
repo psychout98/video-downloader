@@ -49,9 +49,9 @@ skip_no_pywinauto = pytest.mark.skipif(
 @pytest.fixture()
 def app_window(app_exe_path):
     """Launch the WPF app and yield the main window. Tears down after test."""
-    app = Application(backend="uia").start(app_exe_path, timeout=30)
-    main_window = app.window(title="Media Downloader", timeout=15)
-    main_window.wait("visible", timeout=15)
+    app = Application(backend="uia").start(app_exe_path)
+    main_window = app.window(title="Media Downloader")
+    main_window.wait("visible", timeout=30)
 
     yield app, main_window
 
