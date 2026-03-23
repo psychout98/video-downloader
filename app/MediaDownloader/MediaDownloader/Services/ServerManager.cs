@@ -196,18 +196,15 @@ public class ServerManager : IDisposable
                 if (checkProc.ExitCode == 0) return; // uvicorn available, skip install
             }
 
-            // uvicorn missing — install dependencies
-            var venvPip = Path.Combine(_installDir, ".venv", "Scripts", "pip.exe");
-            var pipExe = File.Exists(venvPip) ? venvPip : null;
-            if (pipExe == null) return;
-
+            // uvicorn missing — install dependencies using python -m pip
             var pipPsi = new ProcessStartInfo
             {
-                FileName = pipExe,
-                Arguments = $"install -r \"{requirementsPath}\" --quiet",
+                FileName = python,
+                Arguments = $"-m pip install -r \"{requirementsPath}\" --quiet",
                 WorkingDirectory = _installDir,
                 UseShellExecute = false,
                 CreateNoWindow = true,
+                RedirectStandardError = true,
             };
             var pipProc = Process.Start(pipPsi);
             if (pipProc != null)
