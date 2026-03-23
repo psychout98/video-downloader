@@ -24,6 +24,8 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -59,8 +61,9 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MediaDownloader"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startupentry
 
 [Run]
-; Create Python venv and install dependencies
-Filename: "python"; Parameters: "-m venv ""{app}\.venv"""; StatusMsg: "Creating Python virtual environment..."; Flags: runhidden waituntilterminated
+; Remove stale venv from previous install, then create fresh one
+Filename: "cmd"; Parameters: "/c rmdir /s /q ""{app}\.venv"""; StatusMsg: "Removing old virtual environment..."; Flags: runhidden waituntilterminated; Check: OldVenvExists
+Filename: "python"; Parameters: "-m venv --clear ""{app}\.venv"""; StatusMsg: "Creating Python virtual environment..."; Flags: runhidden waituntilterminated
 Filename: "{app}\.venv\Scripts\pip.exe"; Parameters: "install -r ""{app}\requirements.txt"" --quiet"; StatusMsg: "Installing Python dependencies..."; Flags: runhidden waituntilterminated
 
 ; Add firewall rule
@@ -72,6 +75,12 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 [UninstallRun]
 ; Remove firewall rule
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""MediaDownloader"""; Flags: runhidden waituntilterminated
+
+[Code]
+function OldVenvExists(): Boolean;
+begin
+  Result := DirExists(ExpandConstant('{app}\.venv'));
+end;
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\.venv"
