@@ -152,20 +152,22 @@ class TestFeature10_MPCPlayerControlAPI:
 
     def test_10_7_stream_returns_event_stream_with_status_fields(self, test_client):
         """10.7 — GET /api/mpc/stream returns text/event-stream with status fields in events."""
-        with test_client.stream("GET", "/api/mpc/stream") as response:
-            assert response.status_code == 200
-            content_type = response.headers.get("content-type", "")
-            assert "text/event-stream" in content_type
+        # Use ?limit=1 so the SSE generator emits one event then stops,
+        # allowing the sync TestClient to read the full response.
+        response = test_client.get("/api/mpc/stream?limit=1")
+        assert response.status_code == 200
+        content_type = response.headers.get("content-type", "")
+        assert "text/event-stream" in content_type
 
-            # Read lines until we get a data line
-            for line in response.iter_lines():
-                line = line.strip()
-                if line.startswith("data:"):
-                    data = json.loads(line[len("data:"):])
-                    assert "reachable" in data
-                    assert "state" in data
-                    assert "media" in data
-                    break
+        # Verify the body contains at least one SSE data event with expected fields
+        for line in response.text.splitlines():
+            line = line.strip()
+            if line.startswith("data:"):
+                data = json.loads(line[len("data:"):])
+                assert "reachable" in data
+                assert "state" in data
+                assert "media" in data
+                break
 
     def test_10_8_no_windows_paths_in_media_context(self, test_client, mock_state):
         """10.8 — No Windows paths (C:\\, D:\\) exposed in media context responses."""
