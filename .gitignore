@@ -3,12 +3,6 @@
 
 # Dependencies
 node_modules/
-.venv/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
 
 # Build / dist
 dist/
@@ -34,9 +28,6 @@ MagicMock/
 frontend/test-results/
 frontend/test-results.json
 frontend/playwright-report/
-
-# Runtime
-server.pid
 
 # macOS
 .DS_Store
