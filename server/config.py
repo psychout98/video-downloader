@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field, model_validator
+from pydantic import Field
 from pydantic_settings import SettingsConfigDict
 
 # Absolute path to the project .env — two levels up from this file (server/config.py)
@@ -9,36 +9,31 @@ _ENV_FILE = Path(__file__).parent.parent / ".env"
 _DATA_DIR = Path(__file__).parent.parent / "data"
 
 
-def _userprofile(subdir: str) -> str:
-    r"""Primary media dir: resolves %USERPROFILE%\Media\<subdir> at runtime."""
-    return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media" / subdir)
-
-
 def _default_media_dir() -> str:
     return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media")
 
 
-class Settings(BaseSettings):
-    # --- Required API keys ---
-    TMDB_API_KEY: str = Field(..., description="TMDB v3 API key")
-    REAL_DEBRID_API_KEY: str = Field(..., description="Real-Debrid API key")
+def _default_archive_dir() -> str:
+    return "D:\\Media"
 
-    # --- New unified directory settings ---
+
+def _default_downloads_dir() -> str:
+    return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media" / "Downloads" / ".staging")
+
+
+class Settings(BaseSettings):
+    # --- API keys (empty until configured on first run) ---
+    TMDB_API_KEY: str = Field("", description="TMDB v3 API key")
+    REAL_DEBRID_API_KEY: str = Field("", description="Real-Debrid API key")
+
+    # --- Unified directory settings ---
     MEDIA_DIR: str = Field(default_factory=_default_media_dir,
-                           description="Primary media directory (flat, with [tmdb_id] folders)")
-    ARCHIVE_DIR: str = Field("D:\\Media",
+                           description="Primary media directory")
+    ARCHIVE_DIR: str = Field(default_factory=_default_archive_dir,
                              description="Archive directory (watched content moved here)")
 
-    # --- Legacy directory settings (kept for migration) ---
-    MOVIES_DIR: str = Field(default_factory=lambda: _userprofile("Movies"))
-    TV_DIR: str = Field(default_factory=lambda: _userprofile("TV Shows"))
-    ANIME_DIR: str = Field(default_factory=lambda: _userprofile("Anime"))
-    MOVIES_DIR_ARCHIVE: str = Field("D:\\Media\\Movies")
-    TV_DIR_ARCHIVE: str = Field("D:\\Media\\TV Shows")
-    ANIME_DIR_ARCHIVE: str = Field("D:\\Media\\Anime")
-
     # Temporary download staging area
-    DOWNLOADS_DIR: str = Field(default_factory=lambda: _userprofile(r"Downloads\.staging"))
+    DOWNLOADS_DIR: str = Field(default_factory=_default_downloads_dir)
 
     # Central poster cache — inside the data/ folder
     POSTERS_DIR: str = Field(default_factory=lambda: str(_DATA_DIR / "posters"))

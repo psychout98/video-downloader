@@ -230,14 +230,14 @@ class TestMigrateWatchProgress:
 
         with patch("server.core.migration.settings") as mock_settings, \
              patch("server.core.migration.DB_PATH", tmp_path / "test.db"), \
-             patch("server.core.migration.save_watch_progress") as mock_save:
+             patch("server.core.migration.save_watch_progress") as mock_save, \
+             patch("server.core.migration._OLD_MOVIES_DIR", str(movies_dir)), \
+             patch("server.core.migration._OLD_TV_DIR", str(tmp_path / "Media" / "TV Shows")), \
+             patch("server.core.migration._OLD_ANIME_DIR", str(tmp_path / "Media" / "Anime")), \
+             patch("server.core.migration._OLD_MOVIES_DIR_ARCHIVE", str(tmp_path / "Archive" / "Movies")), \
+             patch("server.core.migration._OLD_TV_DIR_ARCHIVE", str(tmp_path / "Archive" / "TV Shows")), \
+             patch("server.core.migration._OLD_ANIME_DIR_ARCHIVE", str(tmp_path / "Archive" / "Anime")):
             mock_settings.PROGRESS_FILE = str(progress_file)
-            mock_settings.MOVIES_DIR = str(movies_dir)
-            mock_settings.TV_DIR = str(tmp_path / "Media" / "TV Shows")
-            mock_settings.ANIME_DIR = str(tmp_path / "Media" / "Anime")
-            mock_settings.MOVIES_DIR_ARCHIVE = str(tmp_path / "Archive" / "Movies")
-            mock_settings.TV_DIR_ARCHIVE = str(tmp_path / "Archive" / "TV Shows")
-            mock_settings.ANIME_DIR_ARCHIVE = str(tmp_path / "Archive" / "Anime")
             mock_settings.WATCH_THRESHOLD = 0.85
             mock_save.return_value = False
 

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 from pathlib import Path
@@ -26,6 +27,20 @@ from ..database import DB_PATH, upsert_media_item, save_watch_progress
 import aiosqlite
 
 logger = logging.getLogger(__name__)
+
+
+def _legacy_userprofile(subdir: str) -> str:
+    """Old default media dir: %USERPROFILE%\\Media\\<subdir>."""
+    return str(Path(os.path.expandvars("%USERPROFILE%")) / "Media" / subdir)
+
+
+# Old per-type directory defaults (for migrating existing installs)
+_OLD_MOVIES_DIR = _legacy_userprofile("Movies")
+_OLD_TV_DIR = _legacy_userprofile("TV Shows")
+_OLD_ANIME_DIR = _legacy_userprofile("Anime")
+_OLD_MOVIES_DIR_ARCHIVE = "D:\\Media\\Movies"
+_OLD_TV_DIR_ARCHIVE = "D:\\Media\\TV Shows"
+_OLD_ANIME_DIR_ARCHIVE = "D:\\Media\\Anime"
 
 # Regex to parse "Title (Year)" from folder names
 _PAREN_YEAR = re.compile(r"^(.+?)\s*\((\d{4})\)\s*$")
@@ -167,9 +182,9 @@ async def _migrate_library_data(tmdb_client, summary: dict) -> None:
 async def _scan_and_register(tmdb_client, summary: dict) -> None:
     """Scan existing directories and register items with TMDB IDs."""
     dir_pairs = [
-        (Path(settings.MOVIES_DIR), "movie"),
-        (Path(settings.TV_DIR), "tv"),
-        (Path(settings.ANIME_DIR), "anime"),
+        (Path(_OLD_MOVIES_DIR), "movie"),
+        (Path(_OLD_TV_DIR), "tv"),
+        (Path(_OLD_ANIME_DIR), "anime"),
     ]
 
     for base_dir, media_type in dir_pairs:
@@ -288,8 +303,8 @@ async def _migrate_watch_progress(summary: dict) -> None:
 
     # Also build a mapping from old directory paths
     old_dirs = [
-        Path(settings.MOVIES_DIR), Path(settings.TV_DIR), Path(settings.ANIME_DIR),
-        Path(settings.MOVIES_DIR_ARCHIVE), Path(settings.TV_DIR_ARCHIVE), Path(settings.ANIME_DIR_ARCHIVE),
+        Path(_OLD_MOVIES_DIR), Path(_OLD_TV_DIR), Path(_OLD_ANIME_DIR),
+        Path(_OLD_MOVIES_DIR_ARCHIVE), Path(_OLD_TV_DIR_ARCHIVE), Path(_OLD_ANIME_DIR_ARCHIVE),
     ]
 
     # Build a title-based lookup: extract title from folder_name for fuzzy matching
@@ -436,14 +451,14 @@ async def _migrate_filesystem(summary: dict) -> None:
 
     # Process each old directory pair
     old_dir_pairs = [
-        (Path(settings.MOVIES_DIR), "movie"),
-        (Path(settings.TV_DIR), "tv"),
-        (Path(settings.ANIME_DIR), "anime"),
+        (Path(_OLD_MOVIES_DIR), "movie"),
+        (Path(_OLD_TV_DIR), "tv"),
+        (Path(_OLD_ANIME_DIR), "anime"),
     ]
     old_archive_pairs = [
-        (Path(settings.MOVIES_DIR_ARCHIVE), "movie"),
-        (Path(settings.TV_DIR_ARCHIVE), "tv"),
-        (Path(settings.ANIME_DIR_ARCHIVE), "anime"),
+        (Path(_OLD_MOVIES_DIR_ARCHIVE), "movie"),
+        (Path(_OLD_TV_DIR_ARCHIVE), "tv"),
+        (Path(_OLD_ANIME_DIR_ARCHIVE), "anime"),
     ]
 
     # Move primary media

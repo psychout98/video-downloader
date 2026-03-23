@@ -189,9 +189,7 @@ class LibraryManager:
 
     def __init__(self, cache_ttl: int = 60):
         self._dirs = [
-            (Path(settings.MOVIES_DIR),   Path(settings.MOVIES_DIR_ARCHIVE),   "movie"),
-            (Path(settings.TV_DIR),       Path(settings.TV_DIR_ARCHIVE),       "tv"),
-            (Path(settings.ANIME_DIR),    Path(settings.ANIME_DIR_ARCHIVE),    "anime"),
+            (Path(settings.MEDIA_DIR), Path(settings.ARCHIVE_DIR), "media"),
         ]
         self._ttl = cache_ttl
         self._cache: list[dict] = []
