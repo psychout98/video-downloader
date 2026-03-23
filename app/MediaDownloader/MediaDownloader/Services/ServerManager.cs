@@ -23,6 +23,7 @@ public class ServerManager : IDisposable
     private bool _disposed;
 
     public event Action<ServerStatus>? StatusChanged;
+    public event Action<string>? OutputReceived;
 
     public ServerStatus Status { get; private set; } = ServerStatus.Stopped;
     public string Host { get; set; } = "0.0.0.0";
@@ -67,7 +68,14 @@ public class ServerManager : IDisposable
             _serverProcess = Process.Start(psi);
             if (_serverProcess != null)
             {
-                // Discard output to prevent buffer deadlock
+                _serverProcess.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data != null) OutputReceived?.Invoke(e.Data);
+                };
+                _serverProcess.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data != null) OutputReceived?.Invoke(e.Data);
+                };
                 _serverProcess.BeginOutputReadLine();
                 _serverProcess.BeginErrorReadLine();
             }
@@ -85,6 +93,7 @@ public class ServerManager : IDisposable
                 }
                 if (_serverProcess?.HasExited == true)
                 {
+                    OutputReceived?.Invoke($"[Server process exited with code {_serverProcess.ExitCode}]");
                     SetStatus(ServerStatus.Stopped);
                     return;
                 }
@@ -96,8 +105,9 @@ public class ServerManager : IDisposable
             else
                 SetStatus(ServerStatus.Stopped);
         }
-        catch
+        catch (Exception ex)
         {
+            OutputReceived?.Invoke($"[Failed to start server: {ex.Message}]");
             SetStatus(ServerStatus.Stopped);
         }
     }

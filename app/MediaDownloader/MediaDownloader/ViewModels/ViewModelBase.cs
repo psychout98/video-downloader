@@ -70,6 +70,14 @@ public class AsyncRelayCommand : ICommand
         _isExecuting = true;
         CommandManager.InvalidateRequerySuggested();
         try { await _execute(); }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(
+                ex.Message,
+                "Error",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Error);
+        }
         finally
         {
             _isExecuting = false;
