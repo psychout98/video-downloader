@@ -24,6 +24,7 @@ try:
     from pywinauto import Application, Desktop
     from pywinauto.findwindows import ElementNotFoundError
     from pywinauto.timings import TimeoutError as PywinautoTimeout
+    import pywinauto.timings as timings
 
     HAS_PYWINAUTO = True
 except ImportError:
@@ -38,6 +39,28 @@ skip_no_pywinauto = pytest.mark.skipif(
 )
 
 
+def launch_and_connect(app_exe_path: str) -> tuple:
+    """Launch the WPF app and wait for the main window.
+
+    Returns (app, main_window) tuple.
+    pywinauto's Application.start() does not accept a timeout kwarg.
+    Application.window() is a spec builder — timeout goes on .wait().
+    """
+    app = Application(backend="uia").start(app_exe_path)
+    main_window = app.window(title="Media Downloader")
+    main_window.wait("visible", timeout=30)
+    return app, main_window
+
+
+def teardown_app(app: Application) -> None:
+    """Kill the app process tree."""
+    try:
+        proc = psutil.Process(app.process)
+        kill_process_tree(proc)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        pass
+
+
 @skip_not_windows
 @skip_no_pywinauto
 class TestAppLaunch:
@@ -45,27 +68,9 @@ class TestAppLaunch:
 
     @pytest.fixture(autouse=True)
     def _launch_app(self, app_exe_path):
-        """Launch the app and tear it down after each test."""
-        self.app = Application(backend="uia").start(
-            app_exe_path,
-            timeout=30,
-        )
-        # Wait for the main window to appear
-        try:
-            self.main_window = self.app.window(title="Media Downloader", timeout=15)
-            self.main_window.wait("visible", timeout=15)
-        except Exception:
-            # If window didn't appear, still try to clean up
-            pass
-
+        self.app, self.main_window = launch_and_connect(app_exe_path)
         yield
-
-        # Teardown: kill the process tree
-        try:
-            proc = psutil.Process(self.app.process)
-            kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        teardown_app(self.app)
 
     def test_main_window_appears(self):
         """The main window should appear with the correct title."""
@@ -88,15 +93,9 @@ class TestTabNavigation:
 
     @pytest.fixture(autouse=True)
     def _launch_app(self, app_exe_path):
-        self.app = Application(backend="uia").start(app_exe_path, timeout=30)
-        self.main_window = self.app.window(title="Media Downloader", timeout=15)
-        self.main_window.wait("visible", timeout=15)
+        self.app, self.main_window = launch_and_connect(app_exe_path)
         yield
-        try:
-            proc = psutil.Process(self.app.process)
-            kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        teardown_app(self.app)
 
     def test_dashboard_tab_is_default(self):
         """Dashboard tab should be selected by default."""
@@ -147,56 +146,45 @@ class TestDashboardView:
 
     @pytest.fixture(autouse=True)
     def _launch_app(self, app_exe_path):
-        self.app = Application(backend="uia").start(app_exe_path, timeout=30)
-        self.main_window = self.app.window(title="Media Downloader", timeout=15)
-        self.main_window.wait("visible", timeout=15)
+        self.app, self.main_window = launch_and_connect(app_exe_path)
         yield
+        teardown_app(self.app)
+
+    def _exists(self, **kwargs) -> bool:
+        """Check if a child window exists, with a short wait."""
         try:
-            proc = psutil.Process(self.app.process)
-            kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+            self.main_window.child_window(**kwargs).wait("exists", timeout=5)
+            return True
+        except PywinautoTimeout:
+            return False
 
     def test_header_text_visible(self):
         """Dashboard should show 'Media Downloader' header."""
-        header = self.main_window.child_window(
-            title="Media Downloader",
-            control_type="Text",
-        )
-        assert header.exists(timeout=5)
+        assert self._exists(title="Media Downloader", control_type="Text")
 
     def test_server_status_label(self):
         """Dashboard should show 'Server Status' label."""
-        label = self.main_window.child_window(
-            title="Server Status",
-            control_type="Text",
-        )
-        assert label.exists(timeout=5)
+        assert self._exists(title="Server Status", control_type="Text")
 
     def test_start_button_present(self):
         """Dashboard should have a Start button."""
-        btn = self.main_window.child_window(title="Start", control_type="Button")
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Start", control_type="Button")
 
     def test_stop_button_present(self):
         """Dashboard should have a Stop button."""
-        btn = self.main_window.child_window(title="Stop", control_type="Button")
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Stop", control_type="Button")
 
     def test_restart_button_present(self):
         """Dashboard should have a Restart button."""
-        btn = self.main_window.child_window(title="Restart", control_type="Button")
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Restart", control_type="Button")
 
     def test_open_web_ui_button_present(self):
         """Dashboard should have an 'Open Web UI' button."""
-        btn = self.main_window.child_window(title="Open Web UI", control_type="Button")
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Open Web UI", control_type="Button")
 
     def test_version_label_present(self):
         """Dashboard should show a Version section."""
-        label = self.main_window.child_window(title="Version", control_type="Text")
-        assert label.exists(timeout=5)
+        assert self._exists(title="Version", control_type="Text")
 
 
 @skip_not_windows
@@ -206,9 +194,7 @@ class TestSettingsView:
 
     @pytest.fixture(autouse=True)
     def _launch_and_navigate(self, app_exe_path):
-        self.app = Application(backend="uia").start(app_exe_path, timeout=30)
-        self.main_window = self.app.window(title="Media Downloader", timeout=15)
-        self.main_window.wait("visible", timeout=15)
+        self.app, self.main_window = launch_and_connect(app_exe_path)
 
         # Navigate to Settings tab
         tab_control = self.main_window.child_window(control_type="Tab")
@@ -217,50 +203,42 @@ class TestSettingsView:
         time.sleep(0.5)
 
         yield
+        teardown_app(self.app)
+
+    def _exists(self, **kwargs) -> bool:
         try:
-            proc = psutil.Process(self.app.process)
-            kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+            self.main_window.child_window(**kwargs).wait("exists", timeout=5)
+            return True
+        except PywinautoTimeout:
+            return False
 
     def test_settings_header_visible(self):
         """Settings view should show 'Settings' header."""
-        header = self.main_window.child_window(title="Settings", control_type="Text")
-        assert header.exists(timeout=5)
+        assert self._exists(title="Settings", control_type="Text")
 
     def test_api_keys_section(self):
         """Settings should have an 'API Keys' section."""
-        section = self.main_window.child_window(title="API Keys", control_type="Text")
-        assert section.exists(timeout=5)
+        assert self._exists(title="API Keys", control_type="Text")
 
     def test_library_directories_section(self):
         """Settings should have a 'Library Directories' section."""
-        section = self.main_window.child_window(
-            title="Library Directories", control_type="Text"
-        )
-        assert section.exists(timeout=5)
+        assert self._exists(title="Library Directories", control_type="Text")
 
     def test_mpc_be_section(self):
         """Settings should have an 'MPC-BE' section."""
-        section = self.main_window.child_window(title="MPC-BE", control_type="Text")
-        assert section.exists(timeout=5)
+        assert self._exists(title="MPC-BE", control_type="Text")
 
     def test_save_button_present(self):
         """Settings should have a 'Save Settings' button."""
-        btn = self.main_window.child_window(title="Save Settings", control_type="Button")
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Save Settings", control_type="Button")
 
     def test_discard_button_present(self):
         """Settings should have a 'Discard Changes' button."""
-        btn = self.main_window.child_window(
-            title="Discard Changes", control_type="Button"
-        )
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Discard Changes", control_type="Button")
 
     def test_test_rd_key_button_present(self):
         """Settings should have a 'Test' button for RD key."""
-        btn = self.main_window.child_window(title="Test", control_type="Button")
-        assert btn.exists(timeout=5)
+        assert self._exists(title="Test", control_type="Button")
 
     def test_browse_buttons_present(self):
         """Settings should have multiple Browse buttons for directory selection."""
@@ -281,23 +259,16 @@ class TestServerLifecycle:
 
     @pytest.fixture(autouse=True)
     def _launch_app(self, app_exe_path):
-        self.app = Application(backend="uia").start(app_exe_path, timeout=30)
-        self.main_window = self.app.window(title="Media Downloader", timeout=15)
-        self.main_window.wait("visible", timeout=15)
+        self.app, self.main_window = launch_and_connect(app_exe_path)
         yield
         # Stop server if running, then kill app
         try:
             stop_btn = self.main_window.child_window(title="Stop", control_type="Button")
-            if stop_btn.exists(timeout=2):
-                stop_btn.click_input()
-                time.sleep(3)
+            stop_btn.click_input()
+            time.sleep(3)
         except Exception:
             pass
-        try:
-            proc = psutil.Process(self.app.process)
-            kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        teardown_app(self.app)
 
     def test_start_server(self):
         """Click Start and verify status text changes."""
@@ -306,30 +277,29 @@ class TestServerLifecycle:
 
         # Wait for status to update — look for "Running" text
         time.sleep(5)
-        # The StatusText binding should update to "Running"
-        running_text = self.main_window.child_window(
-            title_re=".*Running.*",
-            control_type="Text",
-        )
-        assert running_text.exists(timeout=15), "Server did not start — 'Running' not found"
+        try:
+            self.main_window.child_window(
+                title_re=".*Running.*", control_type="Text"
+            ).wait("exists", timeout=15)
+        except PywinautoTimeout:
+            pytest.fail("Server did not start — 'Running' not found")
 
     def test_stop_server(self):
         """Start the server, then stop it."""
-        # Start first
         start_btn = self.main_window.child_window(title="Start", control_type="Button")
         start_btn.click_input()
         time.sleep(5)
 
-        # Stop
         stop_btn = self.main_window.child_window(title="Stop", control_type="Button")
         stop_btn.click_input()
         time.sleep(3)
 
-        stopped_text = self.main_window.child_window(
-            title_re=".*Stopped.*",
-            control_type="Text",
-        )
-        assert stopped_text.exists(timeout=15), "Server did not stop — 'Stopped' not found"
+        try:
+            self.main_window.child_window(
+                title_re=".*Stopped.*", control_type="Text"
+            ).wait("exists", timeout=15)
+        except PywinautoTimeout:
+            pytest.fail("Server did not stop — 'Stopped' not found")
 
 
 @skip_not_windows
@@ -339,15 +309,9 @@ class TestSystemTray:
 
     @pytest.fixture(autouse=True)
     def _launch_app(self, app_exe_path):
-        self.app = Application(backend="uia").start(app_exe_path, timeout=30)
-        self.main_window = self.app.window(title="Media Downloader", timeout=15)
-        self.main_window.wait("visible", timeout=15)
+        self.app, self.main_window = launch_and_connect(app_exe_path)
         yield
-        try:
-            proc = psutil.Process(self.app.process)
-            kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+        teardown_app(self.app)
 
     def test_minimize_hides_window(self):
         """Minimizing should hide the window (to system tray)."""
@@ -364,7 +328,6 @@ class TestSystemTray:
         # Access the tray via Desktop — look for the notification area
         try:
             desktop = Desktop(backend="uia")
-            # The system tray area
             tray_area = desktop.window(
                 class_name="Shell_TrayWnd"
             ).child_window(
@@ -373,7 +336,6 @@ class TestSystemTray:
             tray_area.click_input()
             time.sleep(0.5)
 
-            # Find our tray icon in the overflow area
             overflow = desktop.window(class_name="NotifyIconOverflowWindow")
             md_icon = overflow.child_window(title_re=".*Media Downloader.*")
             md_icon.double_click_input()
@@ -390,9 +352,7 @@ class TestCleanExit:
     """Test that closing the window terminates the process."""
 
     def test_close_terminates_process(self, app_exe_path):
-        app = Application(backend="uia").start(app_exe_path, timeout=30)
-        main_window = app.window(title="Media Downloader", timeout=15)
-        main_window.wait("visible", timeout=15)
+        app, main_window = launch_and_connect(app_exe_path)
 
         pid = app.process
         assert psutil.pid_exists(pid)
