@@ -98,6 +98,33 @@ jobs:
       - name: Install MPC-BE via Chocolatey
         run: choco install mpc-be --yes --no-progress
 
+      - name: Find MPC-BE executable
+        id: mpc
+        run: |
+          # Search common install locations for the MPC-BE executable
+          $searchPaths = @(
+            "C:\Program Files\MPC-BE x64\mpc-be64.exe",
+            "C:\Program Files\MPC-BE\mpc-be64.exe",
+            "C:\Program Files (x86)\MPC-BE\mpc-be.exe",
+            "C:\ProgramData\chocolatey\bin\mpc-be64.exe"
+          )
+          $found = $null
+          foreach ($p in $searchPaths) {
+            if (Test-Path $p) { $found = $p; break }
+          }
+          # Fallback: search the entire Program Files tree
+          if (-not $found) {
+            $found = Get-ChildItem "C:\Program Files*" -Recurse -Filter "mpc-be64.exe" -ErrorAction SilentlyContinue |
+                     Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $found) {
+            Write-Host "ERROR: Could not find MPC-BE executable"
+            exit 1
+          }
+          Write-Host "Found MPC-BE at: $found"
+          "MPC_BE_EXE=$found" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "mpc_exe=$found" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Configure MPC-BE web interface
         run: |
           # MPC-BE reads settings from the registry under HKCU\Software\MPC-BE\Settings
@@ -124,7 +151,7 @@ jobs:
           TMDB_API_KEY=test_tmdb_key_for_ci
           REAL_DEBRID_API_KEY=test_rd_key_for_ci
           MPC_BE_URL=http://127.0.0.1:13579
-          MPC_BE_EXE=C:\Program Files\MPC-BE x64\mpc-be64.exe
+          MPC_BE_EXE=${{ steps.mpc.outputs.mpc_exe }}
           MEDIA_DIR=${{ runner.temp }}\media
           ARCHIVE_DIR=${{ runner.temp }}\archive
           DOWNLOADS_DIR=${{ runner.temp }}\downloads
@@ -135,7 +162,7 @@ jobs:
       # ── Start MPC-BE ───────────────────────────────────────────────
       - name: Start MPC-BE
         run: |
-          Start-Process "C:\Program Files\MPC-BE x64\mpc-be64.exe"
+          Start-Process "${{ steps.mpc.outputs.mpc_exe }}"
           Start-Sleep -Seconds 5
           # Verify MPC-BE web interface is responding
           try {
@@ -191,7 +218,7 @@ jobs:
         env:
           MD_BACKEND_URL: http://127.0.0.1:8000
           TEST_MEDIA_FILE: ${{ github.workspace }}\test_media.mp4
-          MPC_BE_EXE: C:\Program Files\MPC-BE x64\mpc-be64.exe
+          MPC_BE_EXE: ${{ steps.mpc.outputs.mpc_exe }}
         run: python -m pytest tests/integration/test_mpc_integration.py -v --tb=short
 
       # ── Diagnostics on failure ─────────────────────────────────────
