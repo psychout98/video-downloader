@@ -69,6 +69,11 @@ jobs:
             -p:PublishSingleFile=true `
             -o ../../build/publish
 
+      - name: Copy server into publish dir for WPF lifecycle tests
+        run: |
+          Copy-Item -Path server -Destination build\publish\server -Recurse
+          Copy-Item -Path requirements.txt -Destination build\publish\requirements.txt
+
       # ── Frontend build ─────────────────────────────────────────────
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -159,6 +164,8 @@ jobs:
           HOST=127.0.0.1
           PORT=8000
           "@ | Out-File -FilePath .env -Encoding utf8
+          # Also copy .env into WPF publish dir so the app can find it
+          Copy-Item -Path .env -Destination build\publish\.env
 
       # ── Start MPC-BE ───────────────────────────────────────────────
       - name: Start MPC-BE
