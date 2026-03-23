@@ -2,20 +2,10 @@ name: Build Installer & Update Package
 
 on:
   workflow_dispatch:
+  workflow_call:
 
   release:
     types: [published]
-
-  push:
-    paths:
-      - 'requirements.txt'
-      - 'run_server.bat'
-      - 'stop_server.bat'
-      - 'server/**'
-      - 'frontend/**'
-      - 'app/**'
-      - 'installer/**'
-      - '.github/workflows/build-installer.yml'
 
 jobs:
   build:

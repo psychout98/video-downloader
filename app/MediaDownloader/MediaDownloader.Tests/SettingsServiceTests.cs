@@ -52,7 +52,7 @@ public class SettingsServiceTests : IDisposable
             "REAL_DEBRID_API_KEY=rd789\n" +
             "PORT=9000\n" +
             "HOST=127.0.0.1\n" +
-            "MOVIES_DIR=/path/to/movies\n");
+            "MEDIA_DIR=/path/to/media\n");
 
         var settings = _service.Load();
 
@@ -60,20 +60,20 @@ public class SettingsServiceTests : IDisposable
         Assert.Equal("rd789", settings.RealDebridApiKey);
         Assert.Equal(9000, settings.Port);
         Assert.Equal("127.0.0.1", settings.Host);
-        Assert.Equal("/path/to/movies", settings.MoviesDir);
+        Assert.Equal("/path/to/media", settings.MediaDir);
     }
 
     [Fact]
     public void Load_StripsQuotesFromValues()
     {
         File.WriteAllText(Path.Combine(_tempDir, ".env"),
-            "MOVIES_DIR=\"/path with spaces/movies\"\n" +
-            "TV_DIR='/single/quoted'\n");
+            "MEDIA_DIR=\"/path with spaces/media\"\n" +
+            "ARCHIVE_DIR='/single/quoted'\n");
 
         var settings = _service.Load();
 
-        Assert.Equal("/path with spaces/movies", settings.MoviesDir);
-        Assert.Equal("/single/quoted", settings.TvDir);
+        Assert.Equal("/path with spaces/media", settings.MediaDir);
+        Assert.Equal("/single/quoted", settings.ArchiveDir);
     }
 
     [Fact]

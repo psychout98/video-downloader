@@ -9,12 +9,14 @@ namespace MediaDownloader.Services;
 
 public record ReleaseInfo(string TagName, string Name, string AssetUrl, long AssetSize, DateTime PublishedAt);
 
+public record UpdateCheckResult(ReleaseInfo? Release, string? Error);
+
 /// <summary>
 /// Checks GitHub Releases for updates and applies them.
 /// </summary>
 public class UpdateService
 {
-    private const string DefaultOwner = "noahheath";
+    private const string DefaultOwner = "psychout98";
     private const string DefaultRepo = "video-downloader";
 
     private readonly string _installDir;
@@ -35,13 +37,22 @@ public class UpdateService
             new ProductInfoHeaderValue("MediaDownloader", "1.0"));
     }
 
-    public async Task<ReleaseInfo?> CheckForUpdateAsync()
+    public async Task<UpdateCheckResult> CheckForUpdateAsync()
     {
         try
         {
             var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
             var response = await _httpClient.GetAsync(url);
-            if (!response.IsSuccessStatusCode) return null;
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                return new UpdateCheckResult(null, "No releases published yet.");
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
+                response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                return new UpdateCheckResult(null, "Repository access denied. Check permissions.");
+
+            if (!response.IsSuccessStatusCode)
+                return new UpdateCheckResult(null, $"GitHub returned HTTP {(int)response.StatusCode}.");
 
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
@@ -67,13 +78,23 @@ public class UpdateService
                 }
             }
 
-            if (assetUrl == null) return null;
+            if (assetUrl == null)
+                return new UpdateCheckResult(null, "Release found but no update package attached.");
 
-            return new ReleaseInfo(tagName, name, assetUrl, assetSize, publishedAt);
+            var release = new ReleaseInfo(tagName, name, assetUrl, assetSize, publishedAt);
+            return new UpdateCheckResult(release, null);
         }
-        catch
+        catch (HttpRequestException)
         {
-            return null;
+            return new UpdateCheckResult(null, "Could not reach GitHub. Check your internet connection.");
+        }
+        catch (TaskCanceledException)
+        {
+            return new UpdateCheckResult(null, "Request timed out. Check your internet connection.");
+        }
+        catch (Exception ex)
+        {
+            return new UpdateCheckResult(null, $"Unexpected error: {ex.Message}");
         }
     }
 

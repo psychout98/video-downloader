@@ -24,12 +24,8 @@ logger = logging.getLogger(__name__)
 async def server_status():
     return {
         "status":             "ok",
-        "movies_dir":         settings.MOVIES_DIR,
-        "tv_dir":             settings.TV_DIR,
-        "anime_dir":          settings.ANIME_DIR,
-        "movies_dir_archive": settings.MOVIES_DIR_ARCHIVE,
-        "tv_dir_archive":     settings.TV_DIR_ARCHIVE,
-        "anime_dir_archive":  settings.ANIME_DIR_ARCHIVE,
+        "media_dir":          settings.MEDIA_DIR,
+        "archive_dir":        settings.ARCHIVE_DIR,
         "watch_threshold_pct": int(settings.WATCH_THRESHOLD * 100),
         "mpc_be_url":         settings.MPC_BE_URL,
     }

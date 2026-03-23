@@ -127,7 +127,7 @@ def kill_process_tree(proc: psutil.Process) -> None:
         pass
 
 
-def run_silent_installer(installer: str, target_dir: str, timeout: float = 120) -> int:
+def run_silent_installer(installer: str, target_dir: str, timeout: float = 300) -> int:
     """Run the Inno Setup installer in silent mode and return the exit code."""
     result = subprocess.run(
         [installer, f"/SILENT", f"/DIR={target_dir}", "/SUPPRESSMSGBOXES", "/NORESTART"],

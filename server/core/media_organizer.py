@@ -1,18 +1,15 @@
 """
 Media organizer — moves downloaded files into the library in Plex-compatible paths.
 
-Plex naming conventions
------------------------
+Naming conventions
+------------------
 Movies:
-  {MOVIES_DIR}/{Title} ({Year})/{Title} ({Year}).ext
-  e.g. D:/Media/Movies/Inception (2010)/Inception (2010).mkv
+  {MEDIA_DIR}/{Title} ({Year})/{Title} ({Year}).ext
+  e.g. C:/Users/Me/Media/Inception (2010)/Inception (2010).mkv
 
-TV Shows:
-  {TV_DIR}/{Series Name}/Season {N}/{Series Name} - S{NN}E{NN} - {Episode Title}.ext
-  e.g. D:/Media/TV Shows/Breaking Bad/Season 1/Breaking Bad - S01E01 - Pilot.mkv
-
-Anime:
-  Same structure as TV under ANIME_DIR.
+TV Shows / Anime:
+  {MEDIA_DIR}/{Series Name}/Season {N}/{Series Name} - S{NN}E{NN} - {Episode Title}.ext
+  e.g. C:/Users/Me/Media/Breaking Bad/Season 1/Breaking Bad - S01E01 - Pilot.mkv
 
 Quality tags (optional, placed before extension for visual identification):
   Inception (2010) [2160p DV Atmos].mkv
@@ -61,16 +58,10 @@ def _pick_video_file(directory: Path) -> Optional[Path]:
 
 class MediaOrganizer:
     def __init__(self):
-        self._movies_dir = Path(settings.MOVIES_DIR)
-        self._tv_dir = Path(settings.TV_DIR)
-        self._anime_dir = Path(settings.ANIME_DIR)
+        self._media_dir = Path(settings.MEDIA_DIR)
 
     def _base_dir(self, media: MediaInfo) -> Path:
-        if media.type == "anime":
-            return self._anime_dir
-        if media.type == "tv":
-            return self._tv_dir
-        return self._movies_dir
+        return self._media_dir
 
     # ------------------------------------------------------------------
     # Main entry point
