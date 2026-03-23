@@ -111,13 +111,11 @@ jobs:
 
       # ── Generate test media file ───────────────────────────────────
       - name: Generate test media file with ffmpeg
+        shell: cmd
         run: |
-          # ffmpeg is pre-installed on GitHub Actions Windows runners
-          ffmpeg -f lavfi -i testsrc=duration=30:size=640x480:rate=24 `
-                 -f lavfi -i sine=frequency=440:duration=30 `
-                 -c:v libx264 -c:a aac -shortest `
-                 -y test_media.mp4
-          Write-Host "Test media file created: $((Get-Item test_media.mp4).Length / 1MB) MB"
+          where ffmpeg 2>nul || set "PATH=%PATH%;C:\ProgramData\chocolatey\bin"
+          choco install ffmpeg --yes --no-progress 2>nul
+          ffmpeg -f lavfi -i testsrc=duration=30:size=640x480:rate=24 -f lavfi -i sine=frequency=440:duration=30 -c:v libx264 -c:a aac -shortest -y test_media.mp4
 
       # ── Create .env for backend ────────────────────────────────────
       - name: Create .env file
