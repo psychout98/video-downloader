@@ -74,7 +74,7 @@ public class UpdateServiceTests : IDisposable
     [Fact]
     public void RepoOwner_DefaultsToExpected()
     {
-        Assert.Equal("noahheath", _service.RepoOwner);
+        Assert.Equal("psychout98", _service.RepoOwner);
     }
 
     [Fact]
