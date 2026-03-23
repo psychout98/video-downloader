@@ -45,11 +45,15 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      # ── WPF App build ───────────────────────────────────────────────
+      # ── .NET build & test ──────────────────────────────────────────
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
+
+      - name: Run tests
+        working-directory: app/MediaDownloader
+        run: dotnet test --configuration Release --verbosity normal
 
       - name: Publish WPF app
         working-directory: app/MediaDownloader
@@ -76,7 +80,7 @@ jobs:
         run: |
           "${{ steps.version.outputs.VERSION }}" | Out-File -FilePath .version -NoNewline -Encoding utf8
           Compress-Archive `
-            -Path server, requirements.txt, run_server.bat, stop_server.bat, .version `
+            -Path build/publish, .version `
             -DestinationPath dist/MediaDownloader-update.zip `
             -Force
 
