@@ -116,7 +116,9 @@ public class ServerManager : IDisposable
                 {
                     var proc = Process.GetProcessById(pid);
                     proc.Kill(entireProcessTree: true);
-                    await proc.WaitForExitAsync();
+                    using var cts1 = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    try { await proc.WaitForExitAsync(cts1.Token); }
+                    catch (OperationCanceledException) { }
                 }
             }
             catch { }
@@ -128,7 +130,9 @@ public class ServerManager : IDisposable
             try
             {
                 _serverProcess.Kill(entireProcessTree: true);
-                await _serverProcess.WaitForExitAsync();
+                using var cts2 = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                try { await _serverProcess.WaitForExitAsync(cts2.Token); }
+                catch (OperationCanceledException) { }
             }
             catch { }
         }
