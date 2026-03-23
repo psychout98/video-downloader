@@ -1,0 +1,216 @@
+name: Windows Integration Tests
+
+on:
+  workflow_dispatch:
+
+  push:
+    paths:
+      - 'server/**'
+      - 'app/**'
+      - 'installer/**'
+      - 'tests/integration/**'
+      - 'requirements-integration.txt'
+      - '.github/workflows/integration-tests.yml'
+
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'app/**'
+      - 'installer/**'
+      - 'tests/integration/**'
+      - 'requirements-integration.txt'
+      - '.github/workflows/integration-tests.yml'
+
+jobs:
+  integration:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    env:
+      # Dummy API keys — backend requires them to start, but integration
+      # tests don't call TMDB/RD so any non-empty value works.
+      TMDB_API_KEY: test_tmdb_key_for_ci
+      REAL_DEBRID_API_KEY: test_rd_key_for_ci
+      MPC_BE_URL: http://127.0.0.1:13579
+      HOST: 127.0.0.1
+      PORT: 8000
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      # ── Python setup ───────────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install integration test dependencies
+        run: pip install -r requirements-integration.txt
+
+      # ── .NET setup (for WPF app) ──────────────────────────────────
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish WPF app
+        working-directory: app/MediaDownloader
+        run: |
+          dotnet publish MediaDownloader/MediaDownloader.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -o ../../build/publish
+
+      # ── Frontend build ─────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # ── Build installer ────────────────────────────────────────────
+      - name: Write version file
+        run: |
+          $sha = git rev-parse --short HEAD
+          $sha | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
+
+      - name: Build installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+
+      # ── Install MPC-BE ─────────────────────────────────────────────
+      - name: Install MPC-BE via Chocolatey
+        run: choco install mpc-be --yes --no-progress
+
+      - name: Configure MPC-BE web interface
+        run: |
+          # MPC-BE reads settings from the registry under HKCU\Software\MPC-BE\Settings
+          # Enable the web interface on port 13579
+          $regPath = "HKCU:\Software\MPC-BE\Settings"
+          New-Item -Path $regPath -Force | Out-Null
+          Set-ItemProperty -Path $regPath -Name "WebServerEnable" -Value 1 -Type DWord
+          Set-ItemProperty -Path $regPath -Name "WebServerPort" -Value 13579 -Type DWord
+          Set-ItemProperty -Path $regPath -Name "WebServerLocalhostOnly" -Value 1 -Type DWord
+          Write-Host "MPC-BE web interface configured on port 13579"
+
+      # ── Generate test media file ───────────────────────────────────
+      - name: Generate test media file with ffmpeg
+        run: |
+          # ffmpeg is pre-installed on GitHub Actions Windows runners
+          ffmpeg -f lavfi -i testsrc=duration=30:size=640x480:rate=24 `
+                 -f lavfi -i sine=frequency=440:duration=30 `
+                 -c:v libx264 -c:a aac -shortest `
+                 -y test_media.mp4
+          Write-Host "Test media file created: $((Get-Item test_media.mp4).Length / 1MB) MB"
+
+      # ── Create .env for backend ────────────────────────────────────
+      - name: Create .env file
+        run: |
+          @"
+          TMDB_API_KEY=test_tmdb_key_for_ci
+          REAL_DEBRID_API_KEY=test_rd_key_for_ci
+          MPC_BE_URL=http://127.0.0.1:13579
+          MPC_BE_EXE=C:\Program Files\MPC-BE x64\mpc-be64.exe
+          MEDIA_DIR=${{ runner.temp }}\media
+          ARCHIVE_DIR=${{ runner.temp }}\archive
+          DOWNLOADS_DIR=${{ runner.temp }}\downloads
+          HOST=127.0.0.1
+          PORT=8000
+          "@ | Out-File -FilePath .env -Encoding utf8
+
+      # ── Start MPC-BE ───────────────────────────────────────────────
+      - name: Start MPC-BE
+        run: |
+          Start-Process "C:\Program Files\MPC-BE x64\mpc-be64.exe"
+          Start-Sleep -Seconds 5
+          # Verify MPC-BE web interface is responding
+          try {
+            $response = Invoke-WebRequest -Uri "http://127.0.0.1:13579/variables.html" -UseBasicParsing -TimeoutSec 10
+            Write-Host "MPC-BE web interface responding (status: $($response.StatusCode))"
+          } catch {
+            Write-Host "WARNING: MPC-BE web interface not responding yet: $_"
+            Write-Host "Will retry in tests..."
+          }
+
+      # ── Start backend server ───────────────────────────────────────
+      - name: Start backend server
+        run: |
+          # Start uvicorn in the background
+          Start-Process python -ArgumentList "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "8000" `
+            -RedirectStandardOutput backend_stdout.log `
+            -RedirectStandardError backend_stderr.log `
+            -NoNewWindow:$false
+          Start-Sleep -Seconds 5
+
+          # Wait for backend to be ready (up to 30s)
+          $attempts = 0
+          $maxAttempts = 15
+          while ($attempts -lt $maxAttempts) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/status" -UseBasicParsing -TimeoutSec 5
+              Write-Host "Backend is ready (status: $($response.StatusCode))"
+              break
+            } catch {
+              $attempts++
+              Write-Host "Waiting for backend... ($attempts/$maxAttempts)"
+              Start-Sleep -Seconds 2
+            }
+          }
+          if ($attempts -ge $maxAttempts) {
+            Write-Host "ERROR: Backend did not start in time"
+            Get-Content backend_stderr.log -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      # ── Run integration tests ──────────────────────────────────────
+      - name: Run installer tests
+        env:
+          MD_INSTALLER_PATH: ${{ github.workspace }}\dist\MediaDownloader-Setup.exe
+        run: python -m pytest tests/integration/test_installer.py -v --tb=short
+
+      - name: Run WPF app tests
+        env:
+          MD_APP_EXE_PATH: ${{ github.workspace }}\build\publish\MediaDownloader.exe
+        run: python -m pytest tests/integration/test_wpf_app.py -v --tb=short
+
+      - name: Run MPC-BE integration tests
+        env:
+          MD_BACKEND_URL: http://127.0.0.1:8000
+          TEST_MEDIA_FILE: ${{ github.workspace }}\test_media.mp4
+          MPC_BE_EXE: C:\Program Files\MPC-BE x64\mpc-be64.exe
+        run: python -m pytest tests/integration/test_mpc_integration.py -v --tb=short
+
+      # ── Diagnostics on failure ─────────────────────────────────────
+      - name: Upload backend logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-logs
+          path: |
+            backend_stdout.log
+            backend_stderr.log
+          retention-days: 7
+
+      - name: Show backend logs on failure
+        if: failure()
+        run: |
+          Write-Host "=== Backend stdout ==="
+          Get-Content backend_stdout.log -ErrorAction SilentlyContinue
+          Write-Host "=== Backend stderr ==="
+          Get-Content backend_stderr.log -ErrorAction SilentlyContinue
