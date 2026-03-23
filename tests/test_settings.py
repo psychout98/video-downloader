@@ -1,5 +1,14 @@
 """
-Integration tests for settings router (/api/settings).
+Integration tests for Settings API (Feature 8).
+
+AC Reference:
+  8.1  GET /api/settings returns 200 with all setting keys as strings or numbers
+  8.2  POST /api/settings with valid keys returns ok=true and list of written keys
+  8.3  Unknown setting key returns 400
+  8.4  Surrounding quotes are stripped from values
+  8.5  Multiple keys can be updated in a single request
+  8.6  GET /api/settings/test-rd returns ok field and key_suffix
+  8.7  Invalid RD key returns ok=false; connection errors are handled gracefully
 """
 from __future__ import annotations
 
@@ -9,11 +18,11 @@ import pytest
 
 
 @pytest.mark.integration
-class TestSettingsGetEndpoint:
-    """Settings GET endpoint tests."""
+class TestFeature8_SettingsAPI:
+    """Feature 8: Settings API"""
 
-    def test_get_settings_returns_200_with_all_keys(self, test_client):
-        """GET /api/settings returns 200 with all expected keys."""
+    def test_8_1_get_settings_returns_all_keys_as_strings_or_numbers(self, test_client):
+        """8.1 — GET /api/settings returns 200 with all setting keys as strings or numbers."""
         response = test_client.get("/api/settings")
         assert response.status_code == 200
 
@@ -28,109 +37,52 @@ class TestSettingsGetEndpoint:
         for key in expected_keys:
             assert key in data
 
-    def test_get_settings_all_values_are_strings_or_numbers(self, test_client):
-        """Settings values should be strings or numbers."""
-        response = test_client.get("/api/settings")
-        data = response.json()
-
         for key, value in data.items():
             assert isinstance(value, (str, int, float))
 
-    def test_get_settings_includes_api_keys_masked(self, test_client):
-        """API keys are included but should be from test .env."""
-        response = test_client.get("/api/settings")
-        data = response.json()
-
-        # Should have some keys (from test .env)
-        assert "TMDB_API_KEY" in data
-        assert "REAL_DEBRID_API_KEY" in data
-
-
-@pytest.mark.integration
-class TestSettingsPostEndpoint:
-    """Settings POST endpoint tests."""
-
-    def test_post_settings_with_valid_updates_returns_ok(self, test_client, tmp_env_file):
-        """POST /api/settings with valid updates returns ok=true."""
+    def test_8_2_post_settings_with_valid_keys_returns_ok_and_written(self, test_client, tmp_env_file):
+        """8.2 — POST /api/settings with valid keys returns ok=true and list of written keys."""
         response = test_client.post(
             "/api/settings",
-            json={
-                "updates": {
-                    "TMDB_API_KEY": "new_test_key_123",
-                }
-            },
+            json={"updates": {"TMDB_API_KEY": "new_test_key_123"}},
         )
         assert response.status_code == 200
+
         data = response.json()
         assert data["ok"] is True
         assert "written" in data
+        assert isinstance(data["written"], list)
 
-    def test_post_settings_with_unknown_key_returns_400(self, test_client):
-        """POST /api/settings with unknown key returns 400."""
+    def test_8_3_unknown_setting_key_returns_400(self, test_client):
+        """8.3 — Unknown setting key returns 400."""
         response = test_client.post(
             "/api/settings",
-            json={
-                "updates": {
-                    "UNKNOWN_KEY": "value",
-                }
-            },
+            json={"updates": {"UNKNOWN_KEY": "value"}},
         )
         assert response.status_code == 400
         assert "Unknown key" in response.json()["detail"]
 
-    def test_post_settings_strips_quotes_from_values(self, test_client):
-        """Settings update strips surrounding quotes from values."""
+    def test_8_4_surrounding_quotes_are_stripped(self, test_client):
+        """8.4 — Surrounding quotes are stripped from values."""
         response = test_client.post(
             "/api/settings",
-            json={
-                "updates": {
-                    "MPC_BE_URL": '"http://127.0.0.1:13579"',
-                }
-            },
+            json={"updates": {"MPC_BE_URL": '"http://127.0.0.1:13579"'}},
         )
         assert response.status_code == 200
-        # Value should be written without quotes
         assert response.json()["ok"] is True
 
-    def test_post_settings_multiple_updates(self, test_client):
-        """POST /api/settings can update multiple keys."""
+    def test_8_5_multiple_keys_can_be_updated(self, test_client):
+        """8.5 — Multiple keys can be updated in a single request."""
         response = test_client.post(
             "/api/settings",
-            json={
-                "updates": {
-                    "TMDB_API_KEY": "key1",
-                    "WATCH_THRESHOLD": "0.90",
-                }
-            },
+            json={"updates": {"TMDB_API_KEY": "key1", "WATCH_THRESHOLD": "0.90"}},
         )
         assert response.status_code == 200
-        data = response.json()
-        assert len(data["written"]) >= 1
+        assert len(response.json()["written"]) >= 1
 
-    def test_post_settings_returns_written_keys(self, test_client):
-        """Settings update response includes list of written keys."""
-        response = test_client.post(
-            "/api/settings",
-            json={
-                "updates": {
-                    "HOST": "0.0.0.0",
-                    "PORT": "8080",
-                }
-            },
-        )
-        data = response.json()
-        assert "written" in data
-        assert isinstance(data["written"], list)
-
-
-@pytest.mark.integration
-class TestTestRealDebridEndpoint:
-    """Real-Debrid API test endpoint tests."""
-
-    def test_test_rd_returns_ok_field(self, test_client):
-        """GET /api/settings/test-rd returns response with ok field."""
+    def test_8_6_test_rd_returns_ok_and_key_suffix(self, test_client):
+        """8.6 — GET /api/settings/test-rd returns ok field and key_suffix."""
         with patch("httpx.AsyncClient") as mock_client_class:
-            # Mock the async context manager
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"username": "testuser"}
@@ -139,7 +91,6 @@ class TestTestRealDebridEndpoint:
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
-
             mock_client_class.return_value = mock_client
 
             response = test_client.get("/api/settings/test-rd")
@@ -147,51 +98,31 @@ class TestTestRealDebridEndpoint:
 
             data = response.json()
             assert "ok" in data
-
-    def test_test_rd_includes_key_suffix(self, test_client):
-        """Test RD response includes key_suffix field."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_response.json.return_value = {"username": "testuser"}
-
-            mock_client = AsyncMock()
-            mock_client.get = AsyncMock(return_value=mock_response)
-            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.__aexit__ = AsyncMock(return_value=None)
-
-            mock_client_class.return_value = mock_client
-
-            response = test_client.get("/api/settings/test-rd")
-            data = response.json()
             assert "key_suffix" in data
 
-    def test_test_rd_failure_returns_ok_false(self, test_client):
-        """Test RD with invalid key returns ok=false."""
+    def test_8_7_invalid_rd_key_returns_ok_false_and_errors_handled(self, test_client):
+        """8.7 — Invalid RD key returns ok=false; connection errors are handled gracefully."""
+        # Invalid key
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_response = MagicMock()
-            mock_response.status_code = 401  # Unauthorized
+            mock_response.status_code = 401
             mock_response.json.return_value = {}
 
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
-
             mock_client_class.return_value = mock_client
 
             response = test_client.get("/api/settings/test-rd")
-            data = response.json()
-            assert data["ok"] is False
+            assert response.json()["ok"] is False
 
-    def test_test_rd_handles_connection_error(self, test_client):
-        """Test RD handles connection errors gracefully."""
+        # Connection error
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(side_effect=Exception("Connection failed"))
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
             mock_client.__aexit__ = AsyncMock(return_value=None)
-
             mock_client_class.return_value = mock_client
 
             response = test_client.get("/api/settings/test-rd")
