@@ -45,13 +45,24 @@ skip_no_pywinauto = pytest.mark.skipif(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _wait_for_status_text(main_window, pattern: str, timeout: int = 30) -> bool:
-    """Poll until a Text element matching *pattern* appears, or timeout."""
+def _wait_for_status(main_window, expected: str, timeout: int = 30) -> bool:
+    """Poll until the StatusText binding shows *expected*, or timeout.
+
+    Reads all Text children each iteration and checks their window_text()
+    to avoid stale UIA element caching issues.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        el = main_window.child_window(title_re=pattern, control_type="Text")
-        if el.exists(timeout=0):
-            return True
+        try:
+            texts = main_window.descendants(control_type="Text")
+            for t in texts:
+                try:
+                    if expected.lower() in t.window_text().lower():
+                        return True
+                except Exception:
+                    continue
+        except Exception:
+            pass
         time.sleep(1)
     return False
 
@@ -60,7 +71,7 @@ def _click_start_and_wait(main_window, timeout: int = 30) -> None:
     """Click Start and wait for 'Running' status."""
     start_btn = main_window.child_window(title="Start", control_type="Button")
     start_btn.click_input()
-    assert _wait_for_status_text(main_window, ".*Running.*", timeout=timeout), \
+    assert _wait_for_status(main_window, "Running", timeout=timeout), \
         "Server did not start — 'Running' not found"
 
 
@@ -68,7 +79,7 @@ def _click_stop_and_wait(main_window, timeout: int = 30) -> None:
     """Click Stop and wait for 'Stopped' status."""
     stop_btn = main_window.child_window(title="Stop", control_type="Button")
     stop_btn.click_input()
-    assert _wait_for_status_text(main_window, ".*Stopped.*", timeout=timeout), \
+    assert _wait_for_status(main_window, "Stopped", timeout=timeout), \
         "Server did not stop — 'Stopped' not found"
 
 
@@ -159,7 +170,7 @@ class TestFeature12_WPFDesktopApp:
         restart_btn.click_input()
 
         # Restart may briefly show "Stopped" then "Running" — just wait for Running
-        assert _wait_for_status_text(main_window, ".*Running.*", timeout=30), \
+        assert _wait_for_status(main_window, "Running", timeout=30), \
             "Server did not restart — 'Running' not found"
 
     def test_12_7_open_webui_button_present(self, app_window):
