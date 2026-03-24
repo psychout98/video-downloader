@@ -15,7 +15,7 @@ logs/
 *.log
 
 # Data & media (local only)
-data/
+/data/
 media_downloader.db
 *.db
 
