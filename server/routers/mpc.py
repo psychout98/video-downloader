@@ -42,16 +42,41 @@ class MPCOpenRequest(BaseModel):
     playlist: Optional[list[str]] = None   # full episode playlist for autoplay
 
 
-# ── Media context resolution ──────────────────────────────────────────────────
+# ── Regex patterns ───────────────────────────────────────────────────────────
 
 _EP_RE = re.compile(r"[Ss](\d+)[Ee](\d+)")
+_TMDB_ID_RE = re.compile(r"\[(\d+)\]")
+_VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".flv", ".m4v"}
 
+
+# ── Media context resolution ────────────────────────────────────────────────
 
 def _resolve_media_context(file_path: str) -> dict | None:
-    """Try to match the currently playing file to a library item."""
+    """Extract tmdb_id from [id] in file path and resolve media context.
+
+    Parses the path for a [tmdb_id] bracket pattern and SxEx episode info.
+    Looks up the library for title/type metadata.
+    """
     if not file_path:
         return None
 
+    # Extract tmdb_id from [N] pattern in the path
+    m_id = _TMDB_ID_RE.search(file_path)
+    if not m_id:
+        return None
+
+    tmdb_id = int(m_id.group(1))
+
+    # Extract season/episode from SxEx pattern
+    season, episode = None, None
+    m_ep = _EP_RE.search(file_path)
+    if m_ep:
+        season = int(m_ep.group(1))
+        episode = int(m_ep.group(2))
+
+    # Look up library for title/type
+    title = ""
+    media_type = ""
     items = []
     if state.library:
         try:
@@ -60,28 +85,21 @@ def _resolve_media_context(file_path: str) -> dict | None:
             pass
 
     for item in items:
-        folder_name = item.get("folder_name", "")
-        if folder_name and folder_name in file_path:
-            season, episode = None, None
-            m = _EP_RE.search(file_path)
-            if m:
-                season = int(m.group(1))
-                episode = int(m.group(2))
+        if item.get("tmdb_id") == tmdb_id:
+            title = item.get("title", "")
+            media_type = item.get("type", "")
+            break
 
-            poster_url = None
-            if item.get("poster"):
-                poster_url = f"/api/library/poster?path={item['poster']}"
+    poster_url = f"/api/library/{tmdb_id}/poster"
 
-            return {
-                "tmdb_id":    item.get("tmdb_id"),
-                "title":      item.get("title"),
-                "type":       item.get("type"),
-                "poster_url": poster_url,
-                "season":     season,
-                "episode":    episode,
-            }
-
-    return None
+    return {
+        "tmdb_id":    tmdb_id,
+        "title":      title,
+        "type":       media_type,
+        "poster_url": poster_url,
+        "season":     season,
+        "episode":    episode,
+    }
 
 
 def _strip_windows_paths(media: dict | None) -> dict | None:
@@ -99,17 +117,92 @@ def _strip_windows_paths(media: dict | None) -> dict | None:
 
 # ── File resolution helpers ───────────────────────────────────────────────────
 
+def _resolve_file_path(tmdb_id: int, rel_path: str) -> str | None:
+    """Resolve tmdb_id + rel_path to an absolute file path string.
+
+    Searches MEDIA_DIR and ARCHIVE_DIR for the folder matching tmdb_id
+    from the library, then checks for the file inside.
+    """
+    # Get folder_name from library
+    folder_name = None
+    items = []
+    if state.library:
+        try:
+            items = state.library.scan()
+        except Exception:
+            pass
+
+    for item in items:
+        if item.get("tmdb_id") == tmdb_id:
+            folder_name = item.get("folder_name")
+            break
+
+    if not folder_name:
+        return None
+
+    # Search in MEDIA_DIR and ARCHIVE_DIR
+    for base_dir in (settings.MEDIA_DIR, settings.ARCHIVE_DIR):
+        candidate = Path(base_dir) / folder_name / rel_path
+        if candidate.is_file():
+            return str(candidate)
+
+    return None
+
+
+def _get_adjacent_episode(current_file: str, offset: int) -> str | None:
+    """Find the next (+1) or previous (-1) episode in the same folder.
+
+    Returns the absolute path as a string, or None if not found.
+    Only considers video files, sorted by name.
+    """
+    if not current_file:
+        return None
+
+    current = Path(current_file)
+    folder = current.parent
+
+    if not folder.is_dir():
+        return None
+
+    # Collect sorted video files in the same directory
+    videos = sorted(
+        f for f in folder.iterdir()
+        if f.is_file() and f.suffix.lower() in _VIDEO_EXTS
+    )
+
+    if not videos:
+        return None
+
+    # Find current file index
+    current_idx = None
+    for i, v in enumerate(videos):
+        if v.name == current.name:
+            current_idx = i
+            break
+
+    if current_idx is None:
+        return None
+
+    target_idx = current_idx + offset
+    if target_idx < 0 or target_idx >= len(videos):
+        return None
+
+    return str(videos[target_idx])
+
+
+# ── Legacy helpers (used by endpoints) ────────────────────────────────────────
+
 def _find_library_folder(tmdb_id: int) -> Path | None:
     """Find the library folder for a given tmdb_id by scanning known dirs."""
     search_dirs = [
-        settings.MOVIES_DIR, settings.TV_DIR, settings.ANIME_DIR,
+        settings.MEDIA_DIR, settings.ARCHIVE_DIR,
     ]
-    if hasattr(settings, "MOVIES_DIR_ARCHIVE"):
-        search_dirs.extend([
-            settings.MOVIES_DIR_ARCHIVE,
-            settings.TV_DIR_ARCHIVE,
-            settings.ANIME_DIR_ARCHIVE,
-        ])
+    # Also check legacy dirs if they exist
+    for attr in ("MOVIES_DIR", "TV_DIR", "ANIME_DIR",
+                 "MOVIES_DIR_ARCHIVE", "TV_DIR_ARCHIVE", "ANIME_DIR_ARCHIVE"):
+        d = getattr(settings, attr, None)
+        if d and d not in search_dirs:
+            search_dirs.append(d)
 
     for d in search_dirs:
         parent = Path(d)
@@ -138,10 +231,9 @@ def _resolve_episode_path(tmdb_id: int, rel_path: str) -> Path | None:
 
 def _get_episodes_in_folder(folder: Path) -> list[Path]:
     """Return sorted list of video files in a show folder."""
-    exts = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".flv", ".m4v"}
     eps = []
     for f in sorted(folder.rglob("*")):
-        if f.is_file() and f.suffix.lower() in exts and _EP_RE.search(f.name):
+        if f.is_file() and f.suffix.lower() in _VIDEO_EXTS and _EP_RE.search(f.name):
             eps.append(f)
     return eps
 
@@ -216,7 +308,14 @@ async def mpc_command(body: MPCCommandRequest):
 @router.post("/open")
 async def mpc_open(body: MPCOpenRequest):
     """Open a file in MPC-BE by resolving tmdb_id + rel_path."""
-    resolved = _resolve_episode_path(body.tmdb_id, body.rel_path)
+    # Try the library-aware resolution first
+    resolved_str = _resolve_file_path(body.tmdb_id, body.rel_path)
+    resolved = Path(resolved_str) if resolved_str else None
+
+    # Fall back to legacy resolution
+    if resolved is None:
+        resolved = _resolve_episode_path(body.tmdb_id, body.rel_path)
+
     if resolved is None:
         raise HTTPException(
             status_code=404,
@@ -232,12 +331,13 @@ async def mpc_open(body: MPCOpenRequest):
 
     # Build playlist if provided
     if body.playlist and len(body.playlist) > 1:
-        folder = resolved.parent
-        # Try to resolve each playlist entry
         playlist_paths = []
         for rel in body.playlist:
-            p = _resolve_episode_path(body.tmdb_id, rel)
-            playlist_paths.append(str(p) if p else rel)
+            p_str = _resolve_file_path(body.tmdb_id, rel)
+            if not p_str:
+                p = _resolve_episode_path(body.tmdb_id, rel)
+                p_str = str(p) if p else rel
+            playlist_paths.append(p_str)
         open_path = _make_playlist(playlist_paths)
     else:
         open_path = str(resolved)
@@ -264,6 +364,13 @@ async def mpc_next():
     if not current_file:
         raise HTTPException(status_code=404, detail="Nothing is currently playing")
 
+    # Try simple adjacent episode first (same folder)
+    adjacent = _get_adjacent_episode(current_file, +1)
+    if adjacent:
+        rel_path = Path(adjacent).name
+        return {"ok": True, "rel_path": rel_path, "path": adjacent}
+
+    # Fall back to show-folder-aware resolution
     target, rel_path = _find_adjacent_episode(current_file, +1)
     if target is None:
         raise HTTPException(status_code=404, detail="No next episode found")
@@ -279,6 +386,13 @@ async def mpc_prev():
     if not current_file:
         raise HTTPException(status_code=404, detail="Nothing is currently playing")
 
+    # Try simple adjacent episode first (same folder)
+    adjacent = _get_adjacent_episode(current_file, -1)
+    if adjacent:
+        rel_path = Path(adjacent).name
+        return {"ok": True, "rel_path": rel_path, "path": adjacent}
+
+    # Fall back to show-folder-aware resolution
     target, rel_path = _find_adjacent_episode(current_file, -1)
     if target is None:
         raise HTTPException(status_code=404, detail="No previous episode found")

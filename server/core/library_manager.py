@@ -1,23 +1,8 @@
 """
 Unified library manager — scan + normalize folders + smart poster refresh.
 
-Replaces the separate "normalize folders" and "refresh posters" buttons
-with a single refresh operation.
-
-Refresh pipeline
-----------------
-1. Scan all media directories (primary + archive)
-2. For each item, resolve canonical title via TMDB (rate limited)
-3. If current folder name ≠ canonical name, rename the folder
-4. If poster is missing OR item was just renamed, fetch poster from TMDB
-5. Save updated library metadata to data/library.json
-6. Return a summary of changes
-
-Data files managed
-------------------
-- data/posters/         — cached poster images keyed by "Title (Year)"
-- data/playback.json    — watch progress per file (managed by ProgressStore)
-- data/library.json     — cached library scan metadata
+Supports both the new unified layout (MEDIA_DIR/ARCHIVE_DIR) and
+legacy type-based directories (MOVIES_DIR, TV_DIR, ANIME_DIR).
 """
 from __future__ import annotations
 
@@ -31,13 +16,11 @@ from typing import Optional
 
 import httpx
 
-from ..config import settings
+from server.config import settings
 
 logger = logging.getLogger(__name__)
 
-VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".flv", ".m4v"}
-POSTER_NAMES = {"poster.jpg", "poster.png", "movie.jpg", "movie.png",
-                "folder.jpg", "folder.png", "thumb.jpg", "cover.jpg"}
+VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".flv", ".m4v", ".webm"}
 
 # --- Filename parsers -------------------------------------------------
 
@@ -48,9 +31,12 @@ _QUALITY    = re.compile(
     r"\b(2160p|1080p|720p|480p|4k|uhd|bluray|blu-ray|web-dl|webrip|remux|hevc|x265|x264|hdr|dv|atmos)\b",
     re.I,
 )
+_TMDB_ID_RE = re.compile(r"^(.+?)\s*\[(\d+)\]$")
 
 
 def _clean_title(raw: str) -> str:
+    """Clean up a raw folder/file name into a human-readable title."""
+    # Replace dots with spaces if the string looks like a dot-separated name
     if "." in raw and " " not in raw:
         raw = raw.replace(".", " ")
     raw = raw.replace("_", " ")
@@ -60,6 +46,7 @@ def _clean_title(raw: str) -> str:
 
 
 def _extract_title_year(name: str) -> tuple[str, Optional[int]]:
+    """Extract title and year from a folder name."""
     for pattern in (_PAREN_YEAR, _DASH_YEAR):
         m = pattern.match(name)
         if m:
@@ -70,11 +57,6 @@ def _extract_title_year(name: str) -> tuple[str, Optional[int]]:
     return _clean_title(name), None
 
 
-def _safe_poster_key(s: str) -> str:
-    """Strip characters that are illegal in Windows filenames."""
-    return re.sub(r'[\\/:*?"<>|]', "_", s).strip()
-
-
 def _safe_folder(name: str) -> str:
     """Make a title safe for use as a Windows/macOS folder name."""
     name = re.sub(r":\s*", " - ", name)
@@ -82,11 +64,10 @@ def _safe_folder(name: str) -> str:
     return name.strip(" .")
 
 
-def _find_poster(posters_dir: Path, title_key: str) -> Optional[str]:
-    """Return the path to a cached poster for the given title key."""
-    safe = _safe_poster_key(title_key)
+def _find_poster(posters_dir: Path, tmdb_id: int) -> Optional[str]:
+    """Return the path to a cached poster for the given tmdb_id."""
     for ext in (".jpg", ".png", ".jpeg", ".webp"):
-        p = posters_dir / f"{safe}{ext}"
+        p = posters_dir / f"{tmdb_id}{ext}"
         if p.exists():
             return str(p)
     return None
@@ -94,13 +75,11 @@ def _find_poster(posters_dir: Path, title_key: str) -> Optional[str]:
 
 # --- Directory scanner ------------------------------------------------
 
-def _scan_directory(base_dir: Path, media_type: str, storage: str) -> list[dict]:
+def _scan_directory(base_dir: Path, posters_dir: Path, storage: str) -> list[dict]:
     """Scan *base_dir* and return a list of media item dicts."""
     results: list[dict] = []
     if not base_dir.exists():
         return results
-
-    posters_dir = Path(settings.POSTERS_DIR)
 
     for entry in sorted(base_dir.iterdir(), key=lambda p: p.name):
         try:
@@ -108,42 +87,41 @@ def _scan_directory(base_dir: Path, media_type: str, storage: str) -> list[dict]
                 continue
 
             if entry.is_dir():
-                title, year = _extract_title_year(entry.name)
+                # Check for tmdb_id in folder name
+                tmdb_match = _TMDB_ID_RE.match(entry.name)
+                if tmdb_match:
+                    tmdb_id = int(tmdb_match.group(2))
+                    title = tmdb_match.group(1).strip()
+                    year = None
+                    # Try to extract year from the title part
+                    paren_m = _PAREN_YEAR.match(title)
+                    if paren_m:
+                        title = paren_m.group(1).strip()
+                        year = int(paren_m.group(2))
+                else:
+                    tmdb_id = None
+                    title, year = _extract_title_year(entry.name)
+
                 video_files = [
                     p for p in entry.rglob("*")
                     if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS
                 ]
                 if not video_files:
                     continue
-                video_files.sort(key=lambda p: (p.parent.name, p.name))
+
                 total_size = sum(p.stat().st_size for p in video_files)
-                title_key = f"{title} ({year})" if year else title
-                poster = _find_poster(posters_dir, title_key)
+                poster = _find_poster(posters_dir, tmdb_id) if tmdb_id else None
+
                 results.append({
                     "title": title,
                     "year": year,
-                    "type": media_type,
+                    "tmdb_id": tmdb_id,
+                    "type": "movie",  # will be overridden by context
                     "path": str(video_files[0]),
                     "folder": str(entry),
+                    "folder_name": entry.name,
                     "file_count": len(video_files),
                     "size_bytes": total_size,
-                    "poster": poster,
-                    "modified_at": int(entry.stat().st_mtime),
-                    "storage": storage,
-                })
-
-            elif entry.is_file() and entry.suffix.lower() in VIDEO_EXTENSIONS:
-                title, year = _extract_title_year(entry.stem)
-                title_key = f"{title} ({year})" if year else title
-                poster = _find_poster(posters_dir, title_key)
-                results.append({
-                    "title": title,
-                    "year": year,
-                    "type": media_type,
-                    "path": str(entry),
-                    "folder": str(entry.parent),
-                    "file_count": 1,
-                    "size_bytes": entry.stat().st_size,
                     "poster": poster,
                     "modified_at": int(entry.stat().st_mtime),
                     "storage": storage,
@@ -155,31 +133,37 @@ def _scan_directory(base_dir: Path, media_type: str, storage: str) -> list[dict]
     return results
 
 
-def _merge_entries(primary: list[dict], archive: list[dict], media_type: str) -> list[dict]:
-    """Merge primary and archive entries for the same media type."""
-    if media_type == "movie":
-        return primary + archive
+def _merge_entries(media: list[dict], archive: list[dict]) -> list[dict]:
+    """Merge media and archive entries, combining those with the same tmdb_id or folder_name."""
+    by_key: dict = {}
 
-    by_title: dict[str, dict] = {}
-    for item in primary:
-        key = item["title"].lower()
-        by_title[key] = item.copy()
+    def _get_key(item):
+        if item.get("tmdb_id"):
+            return ("tmdb", item["tmdb_id"])
+        return ("folder", item.get("folder_name", ""))
+
+    for item in media:
+        key = _get_key(item)
+        entry = item.copy()
+        entry["location"] = "media"
+        by_key[key] = entry
 
     for item in archive:
-        key = item["title"].lower()
-        if key in by_title:
-            existing = by_title[key]
+        key = _get_key(item)
+        if key in by_key:
+            existing = by_key[key]
             existing["file_count"] += item["file_count"]
             existing["size_bytes"] += item["size_bytes"]
-            existing["storage"] = "mixed"
             existing["modified_at"] = max(existing["modified_at"], item["modified_at"])
+            existing["location"] = "both"
             if not existing.get("poster") and item.get("poster"):
                 existing["poster"] = item["poster"]
-            existing["folder_archive"] = item["folder"]
         else:
-            by_title[key] = item.copy()
+            entry = item.copy()
+            entry["location"] = "archive"
+            by_key[key] = entry
 
-    return list(by_title.values())
+    return list(by_key.values())
 
 
 # --- Library Manager --------------------------------------------------
@@ -188,150 +172,126 @@ class LibraryManager:
     """Unified library scan + normalize + smart poster refresh."""
 
     def __init__(self, cache_ttl: int = 60):
-        self._dirs = [
-            (Path(settings.MOVIES_DIR),   Path(settings.MOVIES_DIR_ARCHIVE),   "movie"),
-            (Path(settings.TV_DIR),       Path(settings.TV_DIR_ARCHIVE),       "tv"),
-            (Path(settings.ANIME_DIR),    Path(settings.ANIME_DIR_ARCHIVE),    "anime"),
-        ]
         self._ttl = cache_ttl
-        self._cache: list[dict] = []
+        self._cache: Optional[list[dict]] = None
         self._cache_time: float = 0.0
-        self._data_dir = Path(settings.POSTERS_DIR).parent  # data/
-        self._library_json = self._data_dir / "library.json"
 
     def scan(self, force: bool = False) -> list[dict]:
         """Scan all library directories and return media items."""
-        if not force and (time.time() - self._cache_time) < self._ttl:
+        if not force and self._cache is not None and (time.time() - self._cache_time) < self._ttl:
             return self._cache
 
         results: list[dict] = []
-        for primary_dir, archive_dir, media_type in self._dirs:
-            primary_items = _scan_directory(primary_dir, media_type, "new")
-            archive_items = _scan_directory(archive_dir, media_type, "archive")
-            merged = _merge_entries(primary_items, archive_items, media_type)
-            results.extend(merged)
+        posters_dir = Path(settings.POSTERS_DIR)
+
+        # Scan new unified dirs
+        media_dir = Path(settings.MEDIA_DIR) if hasattr(settings, 'MEDIA_DIR') else None
+        archive_dir = Path(settings.ARCHIVE_DIR) if hasattr(settings, 'ARCHIVE_DIR') else None
+
+        if media_dir:
+            results.extend(_scan_directory(media_dir, posters_dir, "media"))
+        if archive_dir:
+            results.extend(_scan_directory(archive_dir, posters_dir, "archive"))
+
+        # Also scan legacy dirs
+        legacy_pairs = [
+            ("MOVIES_DIR", "MOVIES_DIR_ARCHIVE", "movie"),
+            ("TV_DIR", "TV_DIR_ARCHIVE", "tv"),
+            ("ANIME_DIR", "ANIME_DIR_ARCHIVE", "anime"),
+        ]
+
+        for primary_attr, archive_attr, media_type in legacy_pairs:
+            primary = Path(getattr(settings, primary_attr, ""))
+            archive = Path(getattr(settings, archive_attr, ""))
+
+            # Skip if same as unified dirs
+            if media_dir and primary == media_dir:
+                continue
+            if archive_dir and archive == archive_dir:
+                continue
+
+            primary_items = _scan_directory(primary, posters_dir, "media")
+            archive_items = _scan_directory(archive, posters_dir, "archive")
+
+            for item in primary_items + archive_items:
+                item["type"] = media_type
+            results.extend(primary_items)
+            results.extend(archive_items)
 
         results.sort(key=lambda x: x.get("modified_at", 0), reverse=True)
         self._cache = results
         self._cache_time = time.time()
 
-        # Persist to library.json
-        try:
-            self._data_dir.mkdir(parents=True, exist_ok=True)
-            tmp = self._library_json.with_suffix(".tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(results, f, indent=2)
-            tmp.replace(self._library_json)
-        except Exception as exc:
-            logger.warning("Could not write library.json: %s", exc)
-
         logger.info("Library scan: %d items", len(results))
         return results
 
     async def refresh(self, tmdb_client) -> dict:
-        """Unified refresh: normalize folders + smart poster refresh.
+        """Refresh library: resolve TMDB IDs, upsert media items, fetch posters."""
+        import server.database as db
 
-        1. For each folder in every library dir, resolve the canonical TMDB title.
-        2. If the current folder name differs, rename it.
-        3. If the poster is missing OR the folder was renamed, fetch the poster.
-        4. Rescan the library to pick up all changes.
-
-        Returns a summary dict with counts.
-        """
         posters_dir = Path(settings.POSTERS_DIR)
         posters_dir.mkdir(parents=True, exist_ok=True)
 
-        renamed_count = 0
-        posters_fetched = 0
+        added = 0
         errors: list[str] = []
 
-        for primary_dir, archive_dir, media_type in self._dirs:
-            for lib_dir in (primary_dir, archive_dir):
-                if not lib_dir.exists():
-                    continue
+        # Scan current state
+        media_dir = Path(settings.MEDIA_DIR)
+        archive_dir = Path(settings.ARCHIVE_DIR)
 
-                for entry in sorted(lib_dir.iterdir()):
-                    if not entry.is_dir() or entry.name.startswith("."):
-                        continue
+        all_entries = []
+        all_entries.extend(_scan_directory(media_dir, posters_dir, "media"))
+        all_entries.extend(_scan_directory(archive_dir, posters_dir, "archive"))
 
-                    # Check for video files
-                    has_video = any(
-                        f.suffix.lower() in VIDEO_EXTENSIONS
-                        for f in entry.rglob("*") if f.is_file()
-                    )
-                    if not has_video:
-                        continue
+        for entry in all_entries:
+            tmdb_id = entry.get("tmdb_id")
+            title = entry.get("title", "")
+            year = entry.get("year")
+            folder_name = entry.get("folder_name", "")
 
-                    current_name = entry.name
-                    parsed_title, parsed_year = _extract_title_year(current_name)
+            if not tmdb_id:
+                errors.append(f"No TMDB ID for folder: {folder_name}")
+                continue
 
-                    # Rate limit TMDB requests
-                    await asyncio.sleep(0.25)
+            try:
+                # Upsert to database
+                await db.upsert_media_item(
+                    tmdb_id=tmdb_id,
+                    title=title,
+                    year=year,
+                    media_type="movie",
+                    folder_name=folder_name,
+                )
+                added += 1
 
-                    # Resolve canonical title
+                # Check/download poster
+                existing_poster = _find_poster(posters_dir, tmdb_id)
+                if not existing_poster:
                     try:
-                        canonical_title, canonical_year, poster_path = await tmdb_client.fuzzy_resolve(
-                            parsed_title, media_type=media_type, year=parsed_year,
+                        resolved_title, resolved_year, poster_path = await tmdb_client.fuzzy_resolve(
+                            title, year=year,
                         )
-                    except Exception as exc:
-                        errors.append(f"{current_name}: TMDB miss — {exc}")
-                        continue
-
-                    if not canonical_year:
-                        canonical_year = parsed_year
-
-                    new_name = _safe_folder(
-                        f"{canonical_title} ({canonical_year})" if canonical_year
-                        else canonical_title
-                    )
-
-                    was_renamed = False
-
-                    # Rename if needed
-                    if new_name != current_name:
-                        new_path = entry.parent / new_name
-                        if new_path.exists():
-                            errors.append(
-                                f"Skip rename '{current_name}' → '{new_name}': destination exists"
-                            )
-                        else:
-                            try:
-                                entry.rename(new_path)
-                                renamed_count += 1
-                                was_renamed = True
-                                logger.info("Renamed: '%s' → '%s'", current_name, new_name)
-                                entry = new_path  # update reference
-                            except Exception as exc:
-                                errors.append(f"Rename failed '{current_name}': {exc}")
-
-                    # Smart poster refresh: fetch if missing OR renamed
-                    poster_key = new_name if was_renamed else current_name
-                    title_key_for_poster = _safe_poster_key(poster_key)
-                    existing_poster = _find_poster(posters_dir, poster_key)
-
-                    if (not existing_poster or was_renamed) and poster_path:
-                        try:
+                        if poster_path:
                             poster_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
                             async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
                                 r = await client.get(poster_url)
                                 r.raise_for_status()
-                                dest = posters_dir / f"{title_key_for_poster}.jpg"
+                                dest = posters_dir / f"{tmdb_id}.jpg"
                                 dest.write_bytes(r.content)
-                                posters_fetched += 1
-                        except Exception as exc:
-                            errors.append(f"Poster download failed for '{poster_key}': {exc}")
+                    except Exception as exc:
+                        logger.warning("Could not fetch poster for %s: %s", title, exc)
 
-        # Rescan library to pick up changes
-        self.scan(force=True)
+            except Exception as exc:
+                errors.append(f"Error processing {folder_name}: {exc}")
+
+        # Invalidate cache
+        self._cache = None
+        self._cache_time = 0.0
 
         summary = {
-            "renamed": renamed_count,
-            "posters_fetched": posters_fetched,
+            "added": added,
             "errors": errors,
-            "total_items": len(self._cache),
+            "total_items": len(all_entries),
         }
-        logger.info(
-            "Library refresh: renamed=%d, posters=%d, errors=%d",
-            renamed_count, posters_fetched, len(errors),
-        )
+        logger.info("Library refresh: added=%d, errors=%d", added, len(errors))
         return summary

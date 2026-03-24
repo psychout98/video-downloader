@@ -3,6 +3,8 @@ source = server
 omit =
     # Entry point — no testable logic, just wires up uvicorn
     server/main.py
+    # One-time migration from legacy layout — not part of ongoing tests
+    server/core/migration.py
     # Tray app is a separate process, not part of the server
     tray/*
 

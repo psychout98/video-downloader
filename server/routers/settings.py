@@ -142,12 +142,30 @@ def _verify_env_file(env_path: str, expected: dict) -> list[str]:
 
     actual = dotenv_values(env_path)
     errors = []
+
+    # Also read the raw file to detect unparseable quote issues
+    raw_lines = {}
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if "=" in line and not line.startswith("#"):
+                    k, _, v = line.partition("=")
+                    raw_lines[k.strip()] = v.strip()
+    except Exception:
+        pass
+
     for key, expected_value in expected.items():
         actual_value = actual.get(key, "")
         clean_expected = str(expected_value).strip().strip("'\"")
-        # Check for unwanted quote wrapping
+        # Check for unwanted quote wrapping in parsed value
         if actual_value and (actual_value.startswith("'") or actual_value.endswith("'")):
             errors.append(f"{key} has unwanted single quotes: {actual_value!r}")
+        # Also check raw file for unmatched/leading quotes that dotenv couldn't parse
+        elif not actual_value and key in raw_lines:
+            raw_val = raw_lines[key]
+            if raw_val.startswith("'") or raw_val.endswith("'"):
+                errors.append(f"{key} has unwanted single quotes: {raw_val!r}")
     return errors
 
 

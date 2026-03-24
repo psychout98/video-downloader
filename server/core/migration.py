@@ -2,13 +2,13 @@
 One-time migration from legacy layout to new unified layout.
 
 Migration steps:
-1. Config: 6 directory settings → MEDIA_DIR + ARCHIVE_DIR
-2. Library data: library.json → media_items table (with TMDB ID lookup)
-3. Watch progress: playback.json → watch_progress table
-4. Poster cache: rename "Title (Year).jpg" → "{tmdb_id}.jpg"
+1. Config: 6 directory settings -> MEDIA_DIR + ARCHIVE_DIR
+2. Library data: library.json -> media_items table (with TMDB ID lookup)
+3. Watch progress: playback.json -> watch_progress table
+4. Poster cache: rename "Title (Year).jpg" -> "{tmdb_id}.jpg"
 5. Filesystem: move files from type-based dirs into flat MEDIA_DIR/{Title} [{tmdb_id}]/
 
-The migration is idempotent — it checks MIGRATED=True in .env and skips if already done.
+The migration is idempotent -- it checks MIGRATED=True in .env and skips if already done.
 """
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from ..config import settings, _ENV_FILE
-from ..database import DB_PATH, upsert_media_item, save_watch_progress
+from server.config import settings, _ENV_FILE
+from server.database import DB_PATH, upsert_media_item, save_watch_progress
 
 import aiosqlite
 
@@ -73,10 +73,10 @@ async def run_migration(tmdb_client=None) -> dict:
     }
 
     try:
-        # Step 1: Migrate library data (library.json → media_items table)
+        # Step 1: Migrate library data (library.json -> media_items table)
         await _migrate_library_data(tmdb_client, summary)
 
-        # Step 2: Migrate watch progress (playback.json → watch_progress table)
+        # Step 2: Migrate watch progress (playback.json -> watch_progress table)
         await _migrate_watch_progress(summary)
 
         # Step 3: Migrate poster cache (rename files)
@@ -107,7 +107,7 @@ async def run_migration(tmdb_client=None) -> dict:
     return summary
 
 
-# ── Step 1: Library data migration ───────────────────────────────────────────
+# -- Step 1: Library data migration -----------------------------------------------
 
 async def _migrate_library_data(tmdb_client, summary: dict) -> None:
     """Read library.json and insert entries into media_items table."""
@@ -115,7 +115,7 @@ async def _migrate_library_data(tmdb_client, summary: dict) -> None:
     library_json = data_dir / "library.json"
 
     if not library_json.exists():
-        logger.info("No library.json found — scanning directories instead")
+        logger.info("No library.json found -- scanning directories instead")
         await _scan_and_register(tmdb_client, summary)
         return
 
@@ -159,7 +159,7 @@ async def _migrate_library_data(tmdb_client, summary: dict) -> None:
     backup = library_json.with_suffix(".json.bak")
     try:
         library_json.rename(backup)
-        logger.info("Backed up library.json → library.json.bak")
+        logger.info("Backed up library.json -> library.json.bak")
     except Exception:
         pass
 
@@ -225,7 +225,6 @@ async def _resolve_tmdb_id(tmdb_client, title: str, media_type: str, year: Optio
     try:
         is_tv = media_type in ("tv", "anime")
         endpoint = "search/tv" if is_tv else "search/movie"
-        title_key = "name" if is_tv else "title"
 
         # Search with year
         params = {"query": title, "include_adult": False}
@@ -248,7 +247,6 @@ async def _resolve_tmdb_id(tmdb_client, title: str, media_type: str, year: Optio
             results = [r for r in data.get("results", []) if r.get("media_type") in ("movie", "tv")]
 
         if results:
-            # Score by title match and popularity
             def score(r):
                 r_title = (r.get("title") or r.get("name") or "").lower()
                 return (r_title == title.lower(), r.get("popularity", 0))
@@ -263,7 +261,7 @@ async def _resolve_tmdb_id(tmdb_client, title: str, media_type: str, year: Optio
         return None
 
 
-# ── Step 2: Watch progress migration ────────────────────────────────────────
+# -- Step 2: Watch progress migration -------------------------------------------
 
 async def _migrate_watch_progress(summary: dict) -> None:
     """Migrate playback.json to watch_progress table."""
@@ -278,7 +276,7 @@ async def _migrate_watch_progress(summary: dict) -> None:
         summary["errors"].append(f"Could not read playback.json: {exc}")
         return
 
-    # Build a mapping of folder path → tmdb_id from the media_items table
+    # Build a mapping of folder path -> tmdb_id from the media_items table
     folder_to_tmdb: dict[str, int] = {}
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -292,7 +290,7 @@ async def _migrate_watch_progress(summary: dict) -> None:
         Path(settings.MOVIES_DIR_ARCHIVE), Path(settings.TV_DIR_ARCHIVE), Path(settings.ANIME_DIR_ARCHIVE),
     ]
 
-    # Build a title-based lookup: extract title from folder_name for fuzzy matching
+    # Build a title-based lookup
     title_to_tmdb: dict[str, int] = {}
     for folder_name, tid in folder_to_tmdb.items():
         m = _TMDB_ID_RE.match(folder_name)
@@ -305,7 +303,6 @@ async def _migrate_watch_progress(summary: dict) -> None:
             position_ms = progress.get("position_ms", 0)
             duration_ms = progress.get("duration_ms", 0)
 
-            # Find which media dir this file belongs to
             tmdb_id = None
             rel_path = None
 
@@ -315,18 +312,14 @@ async def _migrate_watch_progress(summary: dict) -> None:
                     parts = rel.parts
                     if len(parts) >= 1:
                         folder_name = parts[0]
-                        # Parse title from old folder name (e.g., "Inception (2010)" → "Inception")
                         parsed_title, _ = _parse_title_year(folder_name)
 
-                        # Try exact folder name match first
                         if folder_name in folder_to_tmdb:
                             tmdb_id = folder_to_tmdb[folder_name]
                         else:
-                            # Try title-based match
                             tmdb_id = title_to_tmdb.get(parsed_title.lower())
 
                         if tmdb_id:
-                            # rel_path is the file path relative to the media folder
                             rel_path = str(Path(*parts[1:])) if len(parts) > 1 else fp.name
                     break
                 except ValueError:
@@ -349,12 +342,12 @@ async def _migrate_watch_progress(summary: dict) -> None:
     backup = progress_file.with_suffix(".json.bak")
     try:
         progress_file.rename(backup)
-        logger.info("Backed up playback.json → playback.json.bak")
+        logger.info("Backed up playback.json -> playback.json.bak")
     except Exception:
         pass
 
 
-# ── Step 3: Poster cache migration ──────────────────────────────────────────
+# -- Step 3: Poster cache migration --------------------------------------------
 
 async def _migrate_posters(summary: dict) -> None:
     """Rename poster files from 'Title (Year).jpg' to '{tmdb_id}.jpg'."""
@@ -362,7 +355,7 @@ async def _migrate_posters(summary: dict) -> None:
     if not posters_dir.exists():
         return
 
-    # Build mapping: title key → tmdb_id
+    # Build mapping: title key -> tmdb_id
     title_to_tmdb: dict[str, int] = {}
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -370,7 +363,6 @@ async def _migrate_posters(summary: dict) -> None:
             for row in await cur.fetchall():
                 title = row["title"]
                 year = row["year"]
-                # Generate possible poster key variants
                 if year:
                     key = _safe_poster_key(f"{title} ({year})")
                     title_to_tmdb[key.lower()] = row["tmdb_id"]
@@ -383,12 +375,10 @@ async def _migrate_posters(summary: dict) -> None:
         if poster_file.suffix.lower() not in (".jpg", ".jpeg", ".png", ".webp"):
             continue
 
-        # Check if already a numeric tmdb_id filename
         stem = poster_file.stem
         if stem.isdigit():
             continue
 
-        # Try to match to a tmdb_id
         tmdb_id = title_to_tmdb.get(stem.lower())
         if tmdb_id:
             new_name = f"{tmdb_id}{poster_file.suffix}"
@@ -398,9 +388,8 @@ async def _migrate_posters(summary: dict) -> None:
                     poster_file.rename(new_path)
                     summary["posters_renamed"] += 1
                 except Exception as exc:
-                    summary["errors"].append(f"Poster rename '{poster_file.name}' → '{new_name}': {exc}")
+                    summary["errors"].append(f"Poster rename '{poster_file.name}' -> '{new_name}': {exc}")
             else:
-                # Target already exists, remove the old one
                 try:
                     poster_file.unlink()
                     summary["posters_renamed"] += 1
@@ -408,25 +397,22 @@ async def _migrate_posters(summary: dict) -> None:
                     pass
 
 
-# ── Step 4: Filesystem migration ────────────────────────────────────────────
+# -- Step 4: Filesystem migration -----------------------------------------------
 
 async def _migrate_filesystem(summary: dict) -> None:
     """Move files from type-based directories into flat MEDIA_DIR/{Title} [{tmdb_id}]/ structure."""
     media_dir = Path(settings.MEDIA_DIR)
     archive_dir = Path(settings.ARCHIVE_DIR)
 
-    # Build tmdb mapping for folders
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT tmdb_id, title, year, type, folder_name FROM media_items") as cur:
             items = [dict(r) for r in await cur.fetchall()]
 
-    # Map from old folder names to new folder names + tmdb info
     title_to_item: dict[str, dict] = {}
     for item in items:
         title = item["title"]
         year = item["year"]
-        # Old folder name variants
         if year:
             old_key = f"{_safe_folder(title)} ({year})"
         else:
@@ -434,7 +420,6 @@ async def _migrate_filesystem(summary: dict) -> None:
         title_to_item[old_key.lower()] = item
         title_to_item[_safe_folder(title).lower()] = item
 
-    # Process each old directory pair
     old_dir_pairs = [
         (Path(settings.MOVIES_DIR), "movie"),
         (Path(settings.TV_DIR), "tv"),
@@ -446,20 +431,16 @@ async def _migrate_filesystem(summary: dict) -> None:
         (Path(settings.ANIME_DIR_ARCHIVE), "anime"),
     ]
 
-    # Move primary media
     for old_dir, media_type in old_dir_pairs:
         if not old_dir.exists():
             continue
-        # Skip if old_dir IS the new media_dir (same path)
         try:
             if old_dir.resolve() == media_dir.resolve():
                 continue
         except Exception:
             pass
-
         await _move_dir_contents(old_dir, media_dir, title_to_item, summary)
 
-    # Move archive media
     for old_dir, media_type in old_archive_pairs:
         if not old_dir.exists():
             continue
@@ -468,7 +449,6 @@ async def _migrate_filesystem(summary: dict) -> None:
                 continue
         except Exception:
             pass
-
         await _move_dir_contents(old_dir, archive_dir, title_to_item, summary)
 
 
@@ -483,9 +463,7 @@ async def _move_dir_contents(
         if not entry.is_dir() or entry.name.startswith("."):
             continue
 
-        # Already in new format?
         if _TMDB_ID_RE.match(entry.name):
-            # Just move to new location if needed
             dest = dest_base / entry.name
             if entry.resolve() != dest.resolve() and not dest.exists():
                 try:
@@ -493,13 +471,11 @@ async def _move_dir_contents(
                     shutil.move(str(entry), str(dest))
                     summary["files_moved"] += 1
                 except Exception as exc:
-                    summary["errors"].append(f"Move '{entry}' → '{dest}': {exc}")
+                    summary["errors"].append(f"Move '{entry}' -> '{dest}': {exc}")
             continue
 
-        # Look up the new folder name
         item = title_to_item.get(entry.name.lower())
         if not item:
-            # Try without year
             name_no_year = _PAREN_YEAR.sub(r"\1", entry.name).strip()
             item = title_to_item.get(name_no_year.lower())
 
@@ -516,24 +492,19 @@ async def _move_dir_contents(
         try:
             dest.mkdir(parents=True, exist_ok=True)
 
-            # Move video files, flattening season subdirectories for TV
             for f in entry.rglob("*"):
                 if not f.is_file():
                     continue
                 if f.suffix.lower() not in VIDEO_EXTENSIONS:
-                    # Also move subtitles
                     if f.suffix.lower() not in {".srt", ".ass", ".sub", ".idx", ".vtt", ".nfo"}:
                         continue
 
-                # For TV episodes, flatten into show folder with SxxExx prefix
                 rel = f.relative_to(entry)
                 ep_match = _EPISODE_RE.search(f.name)
 
                 if ep_match:
-                    # Episode file — use just the filename (SxxExx - Title.ext)
                     dest_file = dest / f.name
                 else:
-                    # Movie or non-episode — keep relative path
                     dest_file = dest / rel
 
                 if dest_file.exists():
@@ -543,11 +514,10 @@ async def _move_dir_contents(
                 shutil.move(str(f), str(dest_file))
                 summary["files_moved"] += 1
 
-            # Clean up empty source directory
             _remove_empty_tree(entry)
 
         except Exception as exc:
-            summary["errors"].append(f"Filesystem move '{entry.name}' → '{new_folder_name}': {exc}")
+            summary["errors"].append(f"Filesystem move '{entry.name}' -> '{new_folder_name}': {exc}")
 
 
 def _remove_empty_tree(path: Path) -> None:
@@ -562,11 +532,10 @@ def _remove_empty_tree(path: Path) -> None:
             pass
 
 
-# ── Step 5: Config migration ────────────────────────────────────────────────
+# -- Step 5: Config migration ---------------------------------------------------
 
 def _migrate_config(summary: dict) -> None:
     """Update .env to use new MEDIA_DIR/ARCHIVE_DIR settings."""
-    # Infer MEDIA_DIR from the old dirs (common parent)
     media_dir = settings.MEDIA_DIR
     archive_dir = settings.ARCHIVE_DIR
 

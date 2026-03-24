@@ -1,21 +1,14 @@
 """
-Media organizer — moves downloaded files into the library in Plex-compatible paths.
+Media organizer — moves downloaded files into the library.
 
-Plex naming conventions
------------------------
+New unified layout
+------------------
 Movies:
-  {MOVIES_DIR}/{Title} ({Year})/{Title} ({Year}).ext
-  e.g. D:/Media/Movies/Inception (2010)/Inception (2010).mkv
+  {MEDIA_DIR}/{Title} [{tmdb_id}]/{Title} ({Year}).ext
 
-TV Shows:
-  {TV_DIR}/{Series Name}/Season {N}/{Series Name} - S{NN}E{NN} - {Episode Title}.ext
-  e.g. D:/Media/TV Shows/Breaking Bad/Season 1/Breaking Bad - S01E01 - Pilot.mkv
-
-Anime:
-  Same structure as TV under ANIME_DIR.
-
-Quality tags (optional, placed before extension for visual identification):
-  Inception (2010) [2160p DV Atmos].mkv
+TV / Anime:
+  {MEDIA_DIR}/{Title} [{tmdb_id}]/S{NN}E{NN} - {Episode Title}.ext
+  Season packs keep original filenames.
 """
 from __future__ import annotations
 
@@ -25,25 +18,32 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from ..config import settings
-from ..clients.tmdb_client import MediaInfo
+from server.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Characters not allowed in Windows filenames
-_ILLEGAL_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# Characters not allowed in Windows filenames (excluding colon, handled separately)
+_ILLEGAL_CHARS = re.compile(r'[<>"/\\|?*]')
 # Collapse multiple spaces
 _MULTI_SPACE = re.compile(r"\s{2,}")
 
-# Common video extensions we'll look for after extracting from an archive or
-# when a download folder contains multiple files
-VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".flv"}
+# Common video extensions
+VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm"}
 
 
 def _sanitize(name: str) -> str:
     """Remove characters illegal on Windows/macOS filesystems."""
+    if not name:
+        return ""
+    # Replace colon with " - "
+    name = name.replace(":", " - ")
+    # Remove other illegal characters
     name = _ILLEGAL_CHARS.sub("", name)
-    return _MULTI_SPACE.sub(" ", name).strip(" .")
+    # Collapse multiple spaces
+    name = _MULTI_SPACE.sub(" ", name)
+    # Strip leading/trailing dots and spaces
+    name = name.strip(" .")
+    return name
 
 
 def _pick_video_file(directory: Path) -> Optional[Path]:
@@ -61,22 +61,42 @@ def _pick_video_file(directory: Path) -> Optional[Path]:
 
 class MediaOrganizer:
     def __init__(self):
-        self._movies_dir = Path(settings.MOVIES_DIR)
-        self._tv_dir = Path(settings.TV_DIR)
-        self._anime_dir = Path(settings.ANIME_DIR)
+        pass
 
-    def _base_dir(self, media: MediaInfo) -> Path:
-        if media.type == "anime":
-            return self._anime_dir
-        if media.type == "tv":
-            return self._tv_dir
-        return self._movies_dir
+    def _destination(self, video_path: Path, media) -> Path:
+        """Build the destination path for a video file based on media info."""
+        ext = video_path.suffix
+        media_dir = Path(settings.MEDIA_DIR)
+        title = _sanitize(media.title)
+        tmdb_id = media.tmdb_id
+        folder_name = f"{title} [{tmdb_id}]"
 
-    # ------------------------------------------------------------------
-    # Main entry point
-    # ------------------------------------------------------------------
+        if media.type == "movie":
+            if media.year:
+                file_name = f"{title} ({media.year}){ext}"
+            else:
+                file_name = f"{title}{ext}"
+            return media_dir / folder_name / file_name
 
-    def organize(self, source: Path, media: MediaInfo) -> Path:
+        # TV / Anime
+        season = media.season if media.season is not None else 1
+
+        if media.episode is not None:
+            ep_title = ""
+            if hasattr(media, "episode_titles") and media.episode_titles:
+                ep_title = media.episode_titles.get(media.episode, "")
+
+            if ep_title:
+                file_name = f"S{season:02d}E{media.episode:02d} - {_sanitize(ep_title)}{ext}"
+            else:
+                file_name = f"S{season:02d}E{media.episode:02d}{ext}"
+            return media_dir / folder_name / file_name
+        else:
+            # Season pack — keep original filename
+            file_name = video_path.name
+            return media_dir / folder_name / file_name
+
+    def organize(self, source: Path, media) -> Path:
         """
         Move *source* (a file or directory) to the appropriate library location.
         Returns the final file path.
@@ -92,6 +112,10 @@ class MediaOrganizer:
         dest = self._destination(video_file, media)
         dest.parent.mkdir(parents=True, exist_ok=True)
 
+        # Overwrite if exists
+        if dest.exists():
+            dest.unlink()
+
         logger.info("Moving %s → %s", video_file, dest)
         shutil.move(str(video_file), str(dest))
 
@@ -103,38 +127,3 @@ class MediaOrganizer:
             pass
 
         return dest
-
-    def _destination(self, video_file: Path, media: MediaInfo) -> Path:
-        ext = video_file.suffix.lower() or ".mkv"
-        base = self._base_dir(media)
-
-        if media.type == "movie":
-            folder_name = _sanitize(
-                f"{media.title} ({media.year})" if media.year else media.title
-            )
-            file_name = _sanitize(
-                f"{media.title} ({media.year}){ext}"
-                if media.year
-                else f"{media.title}{ext}"
-            )
-            return base / folder_name / file_name
-
-        # TV / Anime
-        show_dir = _sanitize(media.title)
-        season_num = media.season or 1
-        season_dir = f"Season {season_num:02d}"
-
-        if media.episode is not None:
-            ep_title = media.episode_titles.get(media.episode, "")
-            ep_suffix = (
-                f" - {_sanitize(ep_title)}" if ep_title else ""
-            )
-            file_name = _sanitize(
-                f"{media.title} - S{season_num:02d}E{media.episode:02d}"
-                f"{ep_suffix}{ext}"
-            )
-        else:
-            # Season pack — keep original filename but place in correct folder
-            file_name = _sanitize(video_file.stem + ext)
-
-        return base / show_dir / season_dir / file_name

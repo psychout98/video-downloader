@@ -315,6 +315,16 @@ async def get_watch_progress(tmdb_id: int, rel_path: Optional[str] = None) -> li
                 return [dict(r) for r in await cur.fetchall()]
 
 
+# Convenience aliases used by watch_tracker
+save_progress = save_watch_progress
+
+
+async def get_progress(tmdb_id: int, rel_path: Optional[str] = None) -> Optional[dict]:
+    """Return a single progress dict (or None) — convenience wrapper."""
+    rows = await get_watch_progress(tmdb_id, rel_path)
+    return rows[0] if rows else None
+
+
 async def get_continue_watching(limit: int = 20) -> list[dict]:
     """Return items with partial progress (not fully watched), most recent first."""
     async with aiosqlite.connect(DB_PATH) as db:

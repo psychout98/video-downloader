@@ -239,3 +239,76 @@ async def save_progress(body: ProgressUpdateRequest):
     if state.progress_store:
         state.progress_store.save(body.path, body.position_ms, body.duration_ms)
     return {"ok": True}
+
+
+# ── Helper: episodes for a library item ──────────────────────────────────────
+
+def _get_episodes_for_item(item: dict) -> list[dict]:
+    """Scan MEDIA_DIR and ARCHIVE_DIR for video files in the item's folder.
+
+    Returns a deduplicated, sorted list of episode dicts with fields:
+      season, episode, title, rel_path, filename, size_bytes,
+      progress_pct, position_ms, duration_ms, watched
+    """
+    folder_name = item.get("folder_name", "")
+    if not folder_name:
+        return []
+
+    dirs_to_scan: list[Path] = []
+    for base in (settings.MEDIA_DIR, settings.ARCHIVE_DIR):
+        candidate = Path(base) / folder_name
+        if candidate.exists() and candidate.is_dir():
+            dirs_to_scan.append(candidate)
+
+    if not dirs_to_scan:
+        return []
+
+    episodes: list[dict] = []
+    seen: set[str] = set()
+
+    for scan_dir in dirs_to_scan:
+        for video in sorted(scan_dir.rglob("*")):
+            if not video.is_file() or video.suffix.lower() not in _VIDEO_EXTS:
+                continue
+            if video.name in seen:
+                continue
+            seen.add(video.name)
+
+            stem = video.stem
+            m = _SXEX_RE.search(stem)
+            if m:
+                season = int(m.group(1))
+                episode = int(m.group(2))
+                ep_title = stem[m.end():].strip(" -\u2013")
+            else:
+                season = None
+                episode = None
+                ep_title = stem
+
+            try:
+                rel_path = str(video.relative_to(scan_dir))
+            except ValueError:
+                rel_path = video.name
+
+            episodes.append({
+                "season":       season,
+                "episode":      episode,
+                "title":        ep_title,
+                "rel_path":     rel_path,
+                "filename":     video.name,
+                "path":         str(video),
+                "size_bytes":   video.stat().st_size,
+                "progress_pct": 0,
+                "position_ms":  0,
+                "duration_ms":  0,
+                "watched":      False,
+            })
+
+    # Sort: season nulls last, then episode nulls last, then filename
+    def _sort_key(e):
+        s = e["season"] if e["season"] is not None else 999999
+        ep = e["episode"] if e["episode"] is not None else 999999
+        return (s, ep, e["filename"])
+
+    episodes.sort(key=_sort_key)
+    return episodes

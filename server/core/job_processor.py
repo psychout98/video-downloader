@@ -27,25 +27,25 @@ from typing import Optional
 import aiofiles
 import httpx
 
-from ..config import settings
-from ..database import (
+from server.config import settings
+from server.database import (
     JobStatus,
     append_log,
     get_job,
     get_pending_jobs,
     update_job,
 )
-from .media_organizer import MediaOrganizer
-from ..clients.torrentio_client import StreamResult
-from ..clients.realdebrid_client import RealDebridError
-from ..clients.tmdb_client import MediaInfo
+from server.core.media_organizer import MediaOrganizer
+from server.clients.torrentio_client import StreamResult
+from server.clients.realdebrid_client import RealDebridError
+from server.clients.tmdb_client import MediaInfo
 
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL = 5   # seconds between queue polls
 
 # Video file extensions used when filtering RD links for season packs
-_VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".m4v"}
+_VIDEO_EXTS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".m4v", ".webm", ".flv"}
 
 # Maximum download time per job (2 hours)
 _MAX_DOWNLOAD_SECONDS = 2 * 60 * 60
@@ -53,7 +53,7 @@ _MAX_DOWNLOAD_SECONDS = 2 * 60 * 60
 
 class JobProcessor:
     def __init__(self):
-        from .. import state
+        import server.state as state
 
         self._sem = asyncio.Semaphore(settings.MAX_CONCURRENT_DOWNLOADS)
         self._active: dict[str, asyncio.Task] = {}
@@ -207,8 +207,6 @@ class JobProcessor:
     ) -> list[tuple[str, Optional[int]]]:
         """
         Return list of (cdn_url, size_bytes) to download.
-        - Single episode/movie: one entry (uses Torrentio direct URL if cached)
-        - Season pack (TV/anime, no specific episode): ALL video files in torrent
         """
         is_season_pack = media.type in ("tv", "anime") and media.episode is None
 
@@ -216,7 +214,6 @@ class JobProcessor:
             await _log(job_id, "Using pre-resolved RD URL (instant cache)")
             return [(best.download_url, best.size_bytes)]
 
-        # Go through RD API to get all file links
         magnet = best.magnet
         if not magnet and best.info_hash:
             magnet = f"magnet:?xt=urn:btih:{best.info_hash}"
@@ -239,13 +236,11 @@ class JobProcessor:
         unrestricted = await self._rd.unrestrict_all(rd_links)
 
         if is_season_pack:
-            # Filter to video files; fall back to all if filter is too aggressive
             video_files = [
                 (u, s) for u, s in unrestricted
                 if _is_video_url(u) or (s or 0) > 50 * 1024 * 1024
             ]
             files = video_files or unrestricted
-            # Sort by filename so episodes come out in order
             files.sort(key=lambda x: x[0].split("?")[0].split("/")[-1].lower())
             await _log(job_id, f"Season pack: {len(files)} episode file(s)")
             return files
@@ -315,7 +310,6 @@ class JobProcessor:
         downloaded = 0
         chunk_size = settings.CHUNK_SIZE
 
-        # Retry the initial connection (CDN URLs can fail on first contact)
         last_exc: Optional[Exception] = None
         for attempt in range(_max_connect_retries):
             try:
@@ -364,6 +358,9 @@ class JobProcessor:
 # ---------------------------------------------------------------------------
 
 def _filename_from_url(url: str) -> Optional[str]:
+    """Extract filename from a URL, stripping query params and URL-decoding."""
+    if not url:
+        return None
     try:
         import urllib.parse
         path = url.split("?")[0].rstrip("/")
@@ -377,6 +374,7 @@ def _filename_from_url(url: str) -> Optional[str]:
 
 
 def _is_video_url(url: str) -> bool:
+    """Check if a URL points to a video file."""
     name = url.split("?")[0].rstrip("/").split("/")[-1].lower()
     return any(name.endswith(ext) for ext in _VIDEO_EXTS)
 
@@ -387,7 +385,6 @@ def _episode_from_filename(name: str) -> Optional[int]:
     Supports multiple patterns:
       - S01E03
       - E03 or Ep03
-      - Episode 03
       - - 03 - (number between dashes, common in anime)
     """
     # Standard S##E## pattern
@@ -409,39 +406,36 @@ def _episode_from_filename(name: str) -> Optional[int]:
     return None
 
 
-async def _save_poster(media: MediaInfo, final_path: Path) -> None:
+def _safe_poster_key(text: str) -> str:
+    """Replace Windows-illegal chars with underscore."""
+    return re.sub(r'[:\\/"<>|?*]', "_", text).strip()
+
+
+async def _save_poster(media: MediaInfo, file_path: Path) -> None:
     """Download the TMDB poster to the central data/posters directory."""
-    if not media.poster_url:
+    if not media.poster_path:
         return
 
     posters_dir = Path(settings.POSTERS_DIR)
     posters_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build the poster key
-    if media.type == "movie":
-        key = f"{media.title} ({media.year})" if media.year else media.title
-    else:
-        key = media.title
-
-    poster_file = posters_dir / f"{_safe_poster_key(key)}.jpg"
+    # Build the poster key from display_name
+    key = _safe_poster_key(media.display_name)
+    poster_file = posters_dir / f"{key}.jpg"
 
     if poster_file.exists():
         return
 
     try:
+        poster_url = f"https://image.tmdb.org/t/p/w500{media.poster_path}"
         async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-            r = await client.get(media.poster_url)
+            r = await client.get(poster_url)
             r.raise_for_status()
             async with aiofiles.open(poster_file, "wb") as f:
                 await f.write(r.content)
         logger.info("Saved poster -> %s", poster_file)
     except Exception as exc:
         logger.warning("Could not download poster: %s", exc)
-
-
-def _safe_poster_key(s: str) -> str:
-    """Strip characters that are illegal in Windows filenames."""
-    return re.sub(r'[\\/:*?"<>|]', "_", s).strip()
 
 
 async def _log(job_id: str, msg: str) -> None:
