@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MediaDownloader.Server.Core;
 
 namespace MediaDownloader.Tests.Server;
@@ -20,6 +21,9 @@ public class ProgressStoreTests : IDisposable
             Directory.Delete(_tempDir, recursive: true);
     }
 
+    /// <summary>Safely extract int from object values that may be JsonElement after round-trip.</summary>
+    private static int ToInt(object val) => val is JsonElement je ? je.GetInt32() : Convert.ToInt32(val);
+
     [Fact]
     public void Get_ReturnsNull_WhenEmpty()
     {
@@ -35,8 +39,8 @@ public class ProgressStoreTests : IDisposable
 
         var result = store.Get(@"C:\Media\test.mkv");
         Assert.NotNull(result);
-        Assert.Equal(30000, Convert.ToInt32(result["position_ms"]));
-        Assert.Equal(60000, Convert.ToInt32(result["duration_ms"]));
+        Assert.Equal(30000, ToInt(result["position_ms"]));
+        Assert.Equal(60000, ToInt(result["duration_ms"]));
     }
 
     [Fact]
@@ -47,7 +51,7 @@ public class ProgressStoreTests : IDisposable
         store.Save("file.mkv", 40000, 60000);
 
         var result = store.Get("file.mkv");
-        Assert.Equal(40000, Convert.ToInt32(result!["position_ms"]));
+        Assert.Equal(40000, ToInt(result!["position_ms"]));
     }
 
     [Fact]
@@ -85,7 +89,7 @@ public class ProgressStoreTests : IDisposable
         var store2 = new ProgressStore(_progressPath);
         var result = store2.Get("file.mkv");
         Assert.NotNull(result);
-        Assert.Equal(15000, Convert.ToInt32(result["position_ms"]));
+        Assert.Equal(15000, ToInt(result["position_ms"]));
     }
 
     [Fact]
@@ -112,7 +116,7 @@ public class ProgressStoreTests : IDisposable
         store.Save("a.mkv", 10000, 60000);
         store.Save("b.mkv", 50000, 60000);
 
-        Assert.Equal(10000, Convert.ToInt32(store.Get("a.mkv")!["position_ms"]));
-        Assert.Equal(50000, Convert.ToInt32(store.Get("b.mkv")!["position_ms"]));
+        Assert.Equal(10000, ToInt(store.Get("a.mkv")!["position_ms"]));
+        Assert.Equal(50000, ToInt(store.Get("b.mkv")!["position_ms"]));
     }
 }

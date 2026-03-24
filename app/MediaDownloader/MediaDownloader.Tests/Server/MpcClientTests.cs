@@ -29,7 +29,7 @@ public class MpcClientTests
             """;
         var result = MpcClient.ParseVariables(js);
 
-        Assert.Equal("C:\\Media\\test.mkv", result["file"]);
+        Assert.Equal("C:\\\\Media\\\\test.mkv", result["file"]); // Raw string has literal double backslashes
         Assert.Equal("1", result["state"]);
         Assert.Equal("15000", result["position"]);
     }

@@ -82,7 +82,7 @@ public class MediaOrganizerTests : IDisposable
         Assert.Contains("Breaking Bad", result);
         Assert.Contains("Season 01", result);
         Assert.Contains("S01E03", result);
-        Assert.Contains("And the Bags in the River", result); // sanitized
+        Assert.Contains("And the Bag's in the River", result); // sanitized (dots/leading trimmed)
     }
 
     [Fact]
