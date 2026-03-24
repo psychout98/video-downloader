@@ -60,8 +60,12 @@ public partial class SettingsView : UserControl
 
     private SettingsViewModel? VM => DataContext as SettingsViewModel;
 
-    private void BrowseMediaDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.MediaDir = p);
-    private void BrowseArchiveDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.ArchiveDir = p);
+    private void BrowseMoviesDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.MoviesDir = p);
+    private void BrowseTvDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.TvDir = p);
+    private void BrowseAnimeDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.AnimeDir = p);
+    private void BrowseMoviesDirArchive_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.MoviesDirArchive = p);
+    private void BrowseTvDirArchive_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.TvDirArchive = p);
+    private void BrowseAnimeDirArchive_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.AnimeDirArchive = p);
     private void BrowseDownloadsDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.DownloadsDir = p);
     private void BrowsePostersDir_Click(object s, RoutedEventArgs e) => BrowseFolder(p => VM!.PostersDir = p);
     private void BrowseMpcBeExe_Click(object s, RoutedEventArgs e)

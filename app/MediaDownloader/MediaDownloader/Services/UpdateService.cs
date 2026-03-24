@@ -9,14 +9,12 @@ namespace MediaDownloader.Services;
 
 public record ReleaseInfo(string TagName, string Name, string AssetUrl, long AssetSize, DateTime PublishedAt);
 
-public record UpdateCheckResult(ReleaseInfo? Release, string? Error);
-
 /// <summary>
 /// Checks GitHub Releases for updates and applies them.
 /// </summary>
 public class UpdateService
 {
-    private const string DefaultOwner = "psychout98";
+    private const string DefaultOwner = "noahheath";
     private const string DefaultRepo = "video-downloader";
 
     private readonly string _installDir;
@@ -37,22 +35,13 @@ public class UpdateService
             new ProductInfoHeaderValue("MediaDownloader", "1.0"));
     }
 
-    public async Task<UpdateCheckResult> CheckForUpdateAsync()
+    public async Task<ReleaseInfo?> CheckForUpdateAsync()
     {
         try
         {
             var url = $"https://api.github.com/repos/{RepoOwner}/{RepoName}/releases/latest";
             var response = await _httpClient.GetAsync(url);
-
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
-                return new UpdateCheckResult(null, "No releases published yet.");
-
-            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden ||
-                response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                return new UpdateCheckResult(null, "Repository access denied. Check permissions.");
-
-            if (!response.IsSuccessStatusCode)
-                return new UpdateCheckResult(null, $"GitHub returned HTTP {(int)response.StatusCode}.");
+            if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
@@ -78,23 +67,13 @@ public class UpdateService
                 }
             }
 
-            if (assetUrl == null)
-                return new UpdateCheckResult(null, "Release found but no update package attached.");
+            if (assetUrl == null) return null;
 
-            var release = new ReleaseInfo(tagName, name, assetUrl, assetSize, publishedAt);
-            return new UpdateCheckResult(release, null);
+            return new ReleaseInfo(tagName, name, assetUrl, assetSize, publishedAt);
         }
-        catch (HttpRequestException)
+        catch
         {
-            return new UpdateCheckResult(null, "Could not reach GitHub. Check your internet connection.");
-        }
-        catch (TaskCanceledException)
-        {
-            return new UpdateCheckResult(null, "Request timed out. Check your internet connection.");
-        }
-        catch (Exception ex)
-        {
-            return new UpdateCheckResult(null, $"Unexpected error: {ex.Message}");
+            return null;
         }
     }
 
@@ -121,16 +100,11 @@ public class UpdateService
             // Extract to temp directory
             ZipFile.ExtractToDirectory(tempZip, tempExtract, overwriteFiles: true);
 
-            // Try direct copy first; if it fails due to permissions, use elevated process
-            try
-            {
-                CopyDirectory(tempExtract, _installDir);
-                WriteVersionFile(release.TagName);
-            }
-            catch (UnauthorizedAccessException)
-            {
-                ApplyUpdateElevated(tempExtract, _installDir, release.TagName);
-            }
+            // Copy files over the installation
+            CopyDirectory(tempExtract, _installDir);
+
+            // Update version file
+            WriteVersionFile(release.TagName);
 
             // Check if requirements changed and reinstall
             await UpdatePipDependenciesAsync();
@@ -144,45 +118,6 @@ public class UpdateService
             try { File.Delete(tempZip); } catch { }
             try { if (Directory.Exists(tempExtract)) Directory.Delete(tempExtract, true); } catch { }
         }
-    }
-
-    private static void ApplyUpdateElevated(string sourceDir, string installDir, string version)
-    {
-        // Build a batch script that copies files and writes the version
-        var scriptPath = Path.Combine(Path.GetTempPath(), $"MediaDownloader-update-{Guid.NewGuid()}.bat");
-        var exeName = "MediaDownloader.exe";
-
-        var versionFile = Path.Combine(installDir, ".version");
-        var script = $"""
-            @echo off
-            xcopy "{sourceDir}\*" "{installDir}\" /E /Y /I /EXCLUDE:{scriptPath}.exclude
-            if errorlevel 2 exit /b %errorlevel%
-            > "{versionFile}" (echo {version})
-            del "%~f0.exclude" 2>nul
-            del "%~f0" 2>nul
-            exit /b 0
-            """;
-
-        // Exclude the running exe from being overwritten
-        File.WriteAllText(scriptPath + ".exclude", $@"\{exeName}" + Environment.NewLine);
-        File.WriteAllText(scriptPath, script);
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c \"{scriptPath}\"",
-            Verb = "runas",
-            UseShellExecute = true,
-            CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden,
-        };
-
-        var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start elevated update process.");
-        process.WaitForExit();
-
-        if (process.ExitCode != 0)
-            throw new InvalidOperationException($"Elevated update process exited with code {process.ExitCode}.");
     }
 
     private async Task DownloadWithProgressAsync(string url, string destPath, long totalSize)
@@ -243,30 +178,9 @@ public class UpdateService
             CreateNoWindow = true,
         };
 
-        try
-        {
-            var process = Process.Start(psi);
-            if (process != null)
-                await process.WaitForExitAsync();
-        }
-        catch (Exception)
-        {
-            // If direct pip fails (e.g. permissions), try elevated
-            var elevatedPsi = new ProcessStartInfo
-            {
-                FileName = venvPip,
-                Arguments = $"install -r \"{requirementsPath}\" --quiet",
-                WorkingDirectory = _installDir,
-                Verb = "runas",
-                UseShellExecute = true,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-            };
-
-            var elevatedProcess = Process.Start(elevatedPsi);
-            if (elevatedProcess != null)
-                await elevatedProcess.WaitForExitAsync();
-        }
+        var process = Process.Start(psi);
+        if (process != null)
+            await process.WaitForExitAsync();
     }
 
     private string? ReadVersionFile()

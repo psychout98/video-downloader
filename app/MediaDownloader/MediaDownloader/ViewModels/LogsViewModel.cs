@@ -40,15 +40,6 @@ public class LogsViewModel : ViewModelBase, IDisposable
 
         RefreshCommand = new AsyncRelayCommand(PollLogsAsync);
         ClearCommand = new RelayCommand(() => LogContent = "");
-
-        _serverManager.OutputReceived += line =>
-        {
-            Application.Current?.Dispatcher.Invoke(() =>
-            {
-                LogContent += (LogContent.Length > 0 ? Environment.NewLine : "") + line;
-                LogsUpdated?.Invoke();
-            });
-        };
     }
 
     public void StartPolling() => _pollTimer.Start();

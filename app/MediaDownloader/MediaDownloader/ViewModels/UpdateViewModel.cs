@@ -49,15 +49,13 @@ public class UpdateViewModel : ViewModelBase
         IsUpdateAvailable = false;
         _latestRelease = null;
 
-        var result = await _updateService.CheckForUpdateAsync();
-
-        if (result.Error != null)
+        var release = await _updateService.CheckForUpdateAsync();
+        if (release == null)
         {
-            StatusMessage = result.Error;
+            StatusMessage = "Could not check for updates. Check your internet connection.";
             return;
         }
 
-        var release = result.Release!;
         LatestVersion = release.TagName;
 
         if (_updateService.IsNewerVersion(release))

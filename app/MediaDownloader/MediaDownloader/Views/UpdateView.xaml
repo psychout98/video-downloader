@@ -80,12 +80,10 @@
             <Button Content="Check for Updates"
                     Command="{Binding CheckForUpdatesCommand}"
                     Style="{StaticResource SecondaryButton}"
-                    AutomationProperties.AutomationId="CheckForUpdatesButton"
                     Margin="0,0,12,0" />
             <Button Content="Update Now"
                     Command="{Binding ApplyUpdateCommand}"
-                    Style="{StaticResource AccentButton}"
-                    AutomationProperties.AutomationId="UpdateNowButton" />
+                    Style="{StaticResource AccentButton}" />
         </StackPanel>
     </Grid>
 </UserControl>

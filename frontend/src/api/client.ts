@@ -6,8 +6,9 @@ export interface ApiError extends Error {
 
 export interface StatusResponse {
   status: string;
-  media_dir: string;
-  archive_dir: string;
+  movies_dir: string;
+  tv_dir: string;
+  anime_dir: string;
   mpc_be_url: string;
 }
 

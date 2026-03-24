@@ -57,29 +57,77 @@
                         <TextBlock Text="Library Directories" FontSize="16" FontWeight="SemiBold"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
 
-                        <Label Content="Media Directory" />
-                        <TextBlock Text="Primary storage for new downloads" FontSize="11"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                        <Label Content="Movies" />
                         <Grid Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0" Text="{Binding MediaDir, UpdateSourceTrigger=PropertyChanged}" />
-                            <Button Grid.Column="1" Content="Browse" Click="BrowseMediaDir_Click"
+                            <TextBox Grid.Column="0" Text="{Binding MoviesDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseMoviesDir_Click"
                                     Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
                         </Grid>
 
-                        <Label Content="Archive Directory" />
-                        <TextBlock Text="Watched content is moved here" FontSize="11"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                        <Label Content="TV Shows" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding TvDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseTvDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="Anime" />
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0" Text="{Binding ArchiveDir, UpdateSourceTrigger=PropertyChanged}" />
-                            <Button Grid.Column="1" Content="Browse" Click="BrowseArchiveDir_Click"
+                            <TextBox Grid.Column="0" Text="{Binding AnimeDir, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseAnimeDir_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Archive Directories -->
+                <Border Background="{StaticResource BgPrimaryBrush}" CornerRadius="8" Padding="20" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="Archive Directories" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{StaticResource AccentBrush}" Margin="0,0,0,12" />
+
+                        <Label Content="Movies Archive" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding MoviesDirArchive, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseMoviesDirArchive_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="TV Shows Archive" />
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding TvDirArchive, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseTvDirArchive_Click"
+                                    Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
+                        </Grid>
+
+                        <Label Content="Anime Archive" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" Text="{Binding AnimeDirArchive, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse" Click="BrowseAnimeDirArchive_Click"
                                     Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" />
                         </Grid>
                     </StackPanel>
@@ -197,12 +245,10 @@
             <Button Content="Discard Changes"
                     Command="{Binding DiscardCommand}"
                     Style="{StaticResource SecondaryButton}"
-                    AutomationProperties.AutomationId="DiscardChangesButton"
                     Margin="0,0,8,0" />
             <Button Content="Save Settings"
                     Command="{Binding SaveCommand}"
-                    Style="{StaticResource AccentButton}"
-                    AutomationProperties.AutomationId="SaveSettingsButton" />
+                    Style="{StaticResource AccentButton}" />
         </StackPanel>
     </Grid>
 </UserControl>

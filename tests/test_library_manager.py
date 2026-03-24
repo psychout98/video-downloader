@@ -19,8 +19,12 @@ class TestLibraryManagerScan:
         from server.core.library_manager import LibraryManager
 
         with patch("server.core.library_manager.settings") as mock_settings:
-            mock_settings.MEDIA_DIR = str(tmp_path / "media")
-            mock_settings.ARCHIVE_DIR = str(tmp_path / "archive")
+            mock_settings.MOVIES_DIR = str(tmp_path / "movies")
+            mock_settings.MOVIES_DIR_ARCHIVE = str(tmp_path / "movies_archive")
+            mock_settings.TV_DIR = str(tmp_path / "tv")
+            mock_settings.TV_DIR_ARCHIVE = str(tmp_path / "tv_archive")
+            mock_settings.ANIME_DIR = str(tmp_path / "anime")
+            mock_settings.ANIME_DIR_ARCHIVE = str(tmp_path / "anime_archive")
             mock_settings.POSTERS_DIR = str(tmp_path / "posters")
 
             manager = LibraryManager()
@@ -32,8 +36,12 @@ class TestLibraryManagerScan:
         from server.core.library_manager import LibraryManager
 
         with patch("server.core.library_manager.settings") as mock_settings:
-            mock_settings.MEDIA_DIR = str(tmp_path / "media")
-            mock_settings.ARCHIVE_DIR = str(tmp_path / "archive")
+            mock_settings.MOVIES_DIR = str(tmp_path / "movies")
+            mock_settings.MOVIES_DIR_ARCHIVE = str(tmp_path / "movies_archive")
+            mock_settings.TV_DIR = str(tmp_path / "tv")
+            mock_settings.TV_DIR_ARCHIVE = str(tmp_path / "tv_archive")
+            mock_settings.ANIME_DIR = str(tmp_path / "anime")
+            mock_settings.ANIME_DIR_ARCHIVE = str(tmp_path / "anime_archive")
             mock_settings.POSTERS_DIR = str(tmp_path / "posters")
 
             manager = LibraryManager(cache_ttl=10)
@@ -51,8 +59,12 @@ class TestLibraryManagerScan:
         from server.core.library_manager import LibraryManager
 
         with patch("server.core.library_manager.settings") as mock_settings:
-            mock_settings.MEDIA_DIR = str(tmp_path / "media")
-            mock_settings.ARCHIVE_DIR = str(tmp_path / "archive")
+            mock_settings.MOVIES_DIR = str(tmp_path / "movies")
+            mock_settings.MOVIES_DIR_ARCHIVE = str(tmp_path / "movies_archive")
+            mock_settings.TV_DIR = str(tmp_path / "tv")
+            mock_settings.TV_DIR_ARCHIVE = str(tmp_path / "tv_archive")
+            mock_settings.ANIME_DIR = str(tmp_path / "anime")
+            mock_settings.ANIME_DIR_ARCHIVE = str(tmp_path / "anime_archive")
             mock_settings.POSTERS_DIR = str(tmp_path / "posters")
 
             manager = LibraryManager()
@@ -70,18 +82,22 @@ class TestLibraryManagerScan:
         """scan() detects movie files and returns items."""
         from server.core.library_manager import LibraryManager
 
-        media_dir = tmp_path / "media"
-        media_dir.mkdir()
+        movies_dir = tmp_path / "movies"
+        movies_dir.mkdir()
 
         # Create a movie folder with a video file
-        movie_folder = media_dir / "Test Movie (2024)"
+        movie_folder = movies_dir / "Test Movie (2024)"
         movie_folder.mkdir()
         video_file = movie_folder / "movie.mkv"
         video_file.write_bytes(b"fake video")
 
         with patch("server.core.library_manager.settings") as mock_settings:
-            mock_settings.MEDIA_DIR = str(media_dir)
-            mock_settings.ARCHIVE_DIR = str(tmp_path / "archive")
+            mock_settings.MOVIES_DIR = str(movies_dir)
+            mock_settings.MOVIES_DIR_ARCHIVE = str(tmp_path / "archive")
+            mock_settings.TV_DIR = str(tmp_path / "tv")
+            mock_settings.TV_DIR_ARCHIVE = str(tmp_path / "tv_archive")
+            mock_settings.ANIME_DIR = str(tmp_path / "anime")
+            mock_settings.ANIME_DIR_ARCHIVE = str(tmp_path / "anime_archive")
             mock_settings.POSTERS_DIR = str(tmp_path / "posters")
 
             manager = LibraryManager()
@@ -90,14 +106,19 @@ class TestLibraryManagerScan:
             assert len(result) > 0
             assert result[0]["title"] == "Test Movie"
             assert result[0]["year"] == 2024
+            assert result[0]["type"] == "movie"
 
     def test_scan_cache_expires_after_ttl(self, tmp_path):
         """scan() cache expires after TTL and rescans."""
         from server.core.library_manager import LibraryManager
 
         with patch("server.core.library_manager.settings") as mock_settings:
-            mock_settings.MEDIA_DIR = str(tmp_path / "media")
-            mock_settings.ARCHIVE_DIR = str(tmp_path / "archive")
+            mock_settings.MOVIES_DIR = str(tmp_path / "movies")
+            mock_settings.MOVIES_DIR_ARCHIVE = str(tmp_path / "movies_archive")
+            mock_settings.TV_DIR = str(tmp_path / "tv")
+            mock_settings.TV_DIR_ARCHIVE = str(tmp_path / "tv_archive")
+            mock_settings.ANIME_DIR = str(tmp_path / "anime")
+            mock_settings.ANIME_DIR_ARCHIVE = str(tmp_path / "anime_archive")
             mock_settings.POSTERS_DIR = str(tmp_path / "posters")
 
             manager = LibraryManager(cache_ttl=0.1)
