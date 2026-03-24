@@ -214,8 +214,9 @@ def tmp_env_file(tmp_path):
     env_content = (
         "TMDB_API_KEY=test_tmdb_key_12345\n"
         "REAL_DEBRID_API_KEY=test_rd_key_67890\n"
-        "MEDIA_DIR=/tmp/media\n"
-        "ARCHIVE_DIR=/tmp/archive\n"
+        "MOVIES_DIR=/tmp/movies\n"
+        "TV_DIR=/tmp/tv\n"
+        "ANIME_DIR=/tmp/anime\n"
         "DOWNLOADS_DIR=/tmp/downloads\n"
         "MPC_BE_URL=http://127.0.0.1:13579\n"
     )

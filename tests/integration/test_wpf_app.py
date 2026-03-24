@@ -19,9 +19,6 @@ Run:
 """
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 import time
 
 import psutil
@@ -46,31 +43,6 @@ skip_no_pywinauto = pytest.mark.skipif(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-
-def _dump_win32_windows() -> str:
-    """List all visible windows using Win32 API (more reliable than UIA)."""
-    import ctypes
-    import ctypes.wintypes
-    user32 = ctypes.windll.user32
-    lines = []
-
-    def callback(hwnd, _):
-        if user32.IsWindowVisible(hwnd):
-            length = user32.GetWindowTextLengthW(hwnd)
-            if length > 0:
-                buf = ctypes.create_unicode_buffer(length + 1)
-                user32.GetWindowTextW(hwnd, buf, length + 1)
-                cls = ctypes.create_unicode_buffer(256)
-                user32.GetClassNameW(hwnd, cls, 256)
-                lines.append(f"  hwnd={hwnd:#x}  class={cls.value!r}  title={buf.value!r}")
-        return True
-
-    WNDENUMPROC = ctypes.WINFUNCTYPE(
-        ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM,
-    )
-    user32.EnumWindows(WNDENUMPROC(callback), 0)
-    return "\n".join(lines) if lines else "  (no visible windows found)"
 
 
 def _wait_for_status(main_window, expected: str, timeout: int = 30) -> bool:
@@ -111,110 +83,15 @@ def _click_stop_and_wait(main_window, timeout: int = 30) -> None:
         "Server did not stop — 'Stopped' not found"
 
 
-def _kill_all_media_downloader() -> None:
-    """Kill all MediaDownloader processes."""
-    for proc in psutil.process_iter(["name"]):
-        try:
-            if proc.info["name"] and "MediaDownloader" in proc.info["name"]:
-                kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
-
-
-def _connect_uia(pid: int, timeout: int = 60) -> tuple[Application, object]:
-    """Connect pywinauto UIA to a running process, with retries and diagnostics.
-
-    The GHA runner's UIA Desktop enumeration is broken (returns 0 windows even
-    though Win32 sees them), but connecting to a *specific* process by PID
-    may still work because it bypasses the broken desktop-wide COM enumeration.
-
-    Does NOT fall back to win32 — WPF child controls are invisible to win32.
-    """
-    deadline = time.monotonic() + timeout
-    last_diag = 0.0
-    last_err = None
-
-    while time.monotonic() < deadline:
-        # Make sure process is still alive
-        try:
-            p = psutil.Process(pid)
-            if not p.is_running():
-                raise RuntimeError(f"Process {pid} exited (status={p.status()})")
-        except psutil.NoSuchProcess:
-            raise RuntimeError(f"Process {pid} no longer exists")
-
-        # Try UIA connect by PID
-        try:
-            app = Application(backend="uia").connect(process=pid, timeout=10)
-            win = app.window(title="Media Downloader")
-            if win.exists(timeout=5):
-                print(f"UIA connected to PID {pid}", file=sys.stderr)
-                return app, win
-        except Exception as e:
-            last_err = e
-
-        # Periodic diagnostics
-        now = time.monotonic()
-        if now - last_diag > 10:
-            elapsed = int(now - (deadline - timeout))
-            print(f"\n--- [{elapsed}s] UIA connect failed: {last_err}", file=sys.stderr)
-            print(f"--- Win32 windows:\n{_dump_win32_windows()}", file=sys.stderr)
-            last_diag = now
-
-        time.sleep(2)
-
-    # Do NOT fall back to win32 — it can find the top-level HWND but cannot
-    # see any WPF child controls (buttons, tabs, text) because WPF renders
-    # everything inside a single HWND.  Falling back silently causes every
-    # child-element search to fail with a misleading timeout.
-    diag = _dump_win32_windows()
-    pytest.fail(
-        f"Could not connect via UIA to WPF window within {timeout}s.\n"
-        f"Last error: {last_err}\n"
-        f"Win32 windows (for reference):\n{diag}\n\n"
-        f"NOTE: win32 backend is NOT used because WPF child controls are only "
-        f"visible through UIA. Ensure comtypes is installed: pip install comtypes"
-    )
-
-
 # ── Fixture ───────────────────────────────────────────────────────────────────
 
 
 @pytest.fixture()
 def app_window(app_exe_path):
-    """Launch the WPF app and yield the main window. Tears down after test.
-
-    Uses subprocess.Popen to start the process, then connects pywinauto
-    by PID.  This avoids pywinauto's ``Application.start()`` which relies
-    on the UIA Desktop enumeration that is broken on GHA Windows runners.
-    """
-    # Kill any leftover instances from previous tests
-    _kill_all_media_downloader()
-    time.sleep(1)
-
-    # Skip single-instance mutex check so each test can start a fresh instance
-    env = os.environ.copy()
-    env["MD_SKIP_MUTEX"] = "1"
-
-    print(f"\nLaunching: {app_exe_path}", file=sys.stderr)
-    assert os.path.isfile(app_exe_path), f"Exe not found: {app_exe_path}"
-
-    proc = subprocess.Popen([app_exe_path], env=env)
-    print(f"Process started: PID={proc.pid}", file=sys.stderr)
-
-    # Give the WPF app time to create its window
-    time.sleep(5)
-
-    app, main_window = _connect_uia(proc.pid, timeout=60)
-
-    # Verify UIA backend is active — win32 backend cannot see WPF child
-    # controls because WPF renders everything inside a single HWND.
-    backend_name = getattr(app.backend, 'name', None) or str(app.backend)
-    assert "uia" in backend_name.lower(), (
-        f"Expected UIA backend but got '{backend_name}'. "
-        "WPF apps require UIA for child control discovery. "
-        "Ensure comtypes is installed: pip install comtypes"
-    )
+    """Launch the WPF app and yield the main window. Tears down after test."""
+    app = Application(backend="uia").start(app_exe_path)
+    main_window = app.window(title="Media Downloader")
+    main_window.wait("visible", timeout=30)
 
     yield app, main_window
 
@@ -227,12 +104,12 @@ def app_window(app_exe_path):
     except Exception:
         pass
     try:
-        ps = psutil.Process(proc.pid)
-        kill_process_tree(ps)
+        proc = psutil.Process(app.process)
+        kill_process_tree(proc)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
-    # Wait for process to fully terminate and release ports
-    time.sleep(3)
+    # Extra settle time so ports are released before the next test
+    time.sleep(2)
 
 
 # ── Feature 12: WPF Desktop App ──────────────────────────────────────────

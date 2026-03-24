@@ -1,81 +1,73 @@
-name: Release
+name: Create Release
 
 on:
   push:
-    branches: [main]
-
-permissions:
-  contents: write
+    tags:
+      - 'v*'
 
 jobs:
-  # ── Build ────────────────────────────────────────────────────────────
-  build:
-    uses: ./.github/workflows/build-installer.yml
-
-  # ── Integration tests ────────────────────────────────────────────────
-  integration-tests:
-    uses: ./.github/workflows/integration-tests.yml
-
-  # ── Tag & Release (only after build + ITs pass) ──────────────────────
-  release:
-    needs: [build, integration-tests]
-    runs-on: ubuntu-latest
+  build-and-release:
+    runs-on: windows-latest
 
     steps:
       - name: Check out code
         uses: actions/checkout@v4
+
+      # ── Frontend build ───────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Compute next version tag
-        id: version
-        run: |
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
-          if [ -z "$LATEST_TAG" ]; then
-            NEW_TAG="v0.1.0"
-          else
-            VERSION="${LATEST_TAG#v}"
-            MAJOR=$(echo "$VERSION" | cut -d. -f1)
-            MINOR=$(echo "$VERSION" | cut -d. -f2)
-            PATCH=$(echo "$VERSION" | cut -d. -f3)
-            PATCH=$((PATCH + 1))
-            NEW_TAG="v${MAJOR}.${MINOR}.${PATCH}"
-          fi
-          echo "tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
-          echo "New tag: $NEW_TAG"
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      # ── WPF App build ───────────────────────────────────────────────
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
         with:
-          path: dist
-          merge-multiple: true
+          dotnet-version: '8.0.x'
 
-      - name: Write version file into update package
+      - name: Publish WPF app
+        working-directory: app/MediaDownloader
         run: |
-          echo -n "${{ steps.version.outputs.tag }}" > .version
-          # Re-create the update zip with the version file
-          if [ -f dist/MediaDownloader-update.zip ]; then
-            cd dist
-            mkdir -p _update_repack
-            unzip -o MediaDownloader-update.zip -d _update_repack
-            cp ../.version _update_repack/.version
-            rm MediaDownloader-update.zip
-            cd _update_repack && zip -r ../MediaDownloader-update.zip . && cd ..
-            rm -rf _update_repack
-            cd ..
-          fi
+          dotnet publish MediaDownloader/MediaDownloader.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -o ../../build/publish
 
-      - name: Create tag
+      # ── Write version file ──────────────────────────────────────────
+      - name: Write version file
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          "${{ github.ref_name }}" | Out-File -FilePath build/publish/.version -NoNewline -Encoding utf8
+          "${{ github.ref_name }}" | Out-File -FilePath .version -NoNewline -Encoding utf8
 
-      - name: Create GitHub Release
+      # ── Inno Setup installer ────────────────────────────────────────
+      - name: Build installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\setup.iss
+
+      # ── Update package ─────────────────────────────────────────────
+      - name: Create update package
+        run: |
+          Compress-Archive `
+            -Path server, requirements.txt, run_server.bat, stop_server.bat, .version `
+            -DestinationPath dist/MediaDownloader-update.zip `
+            -Force
+
+      # ── Create GitHub Release ───────────────────────────────────────
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
           files: |
             dist/MediaDownloader-Setup.exe

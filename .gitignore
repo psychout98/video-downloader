@@ -3,6 +3,12 @@
 
 # Dependencies
 node_modules/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
 
 # Build / dist
 dist/
@@ -15,7 +21,7 @@ logs/
 *.log
 
 # Data & media (local only)
-/data/
+data/
 media_downloader.db
 *.db
 
@@ -28,6 +34,9 @@ MagicMock/
 frontend/test-results/
 frontend/test-results.json
 frontend/playwright-report/
+
+# Runtime
+server.pid
 
 # macOS
 .DS_Store

@@ -28,25 +28,11 @@ public partial class MainWindow : Window
         LogsTab.DataContext = _viewModel.Logs;
         UpdateTab.DataContext = _viewModel.Update;
 
-        // Set tray icon based on status (may fail on CI/headless)
+        // Set tray icon based on status
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-        try { UpdateTrayIcon(ServerStatus.Stopped); }
-        catch { /* Tray icon not available */ }
+        UpdateTrayIcon(ServerStatus.Stopped);
 
-        Loaded += OnLoaded;
-    }
-
-    private async void OnLoaded(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            await _viewModel.InitializeAsync();
-        }
-        catch (Exception ex)
-        {
-            // Don't let server startup failures crash the window
-            System.Diagnostics.Debug.WriteLine($"InitializeAsync failed: {ex}");
-        }
+        Loaded += async (_, _) => await _viewModel.InitializeAsync();
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -57,31 +43,24 @@ public partial class MainWindow : Window
 
     private void UpdateTrayIcon(ServerStatus status)
     {
-        try
+        var color = status switch
         {
-            var color = status switch
-            {
-                ServerStatus.Running => Color.LimeGreen,
-                ServerStatus.Starting => Color.Gold,
-                _ => Color.IndianRed
-            };
+            ServerStatus.Running => Color.LimeGreen,
+            ServerStatus.Starting => Color.Gold,
+            _ => Color.IndianRed
+        };
 
-            // Create a simple colored circle icon
-            using var bmp = new Bitmap(16, 16);
-            using var g = Graphics.FromImage(bmp);
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            using var brush = new SolidBrush(color);
-            g.FillEllipse(brush, 1, 1, 14, 14);
+        // Create a simple colored circle icon
+        using var bmp = new Bitmap(16, 16);
+        using var g = Graphics.FromImage(bmp);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.Clear(Color.Transparent);
+        using var brush = new SolidBrush(color);
+        g.FillEllipse(brush, 1, 1, 14, 14);
 
-            var hIcon = bmp.GetHicon();
-            TrayIcon.Icon = System.Drawing.Icon.FromHandle(hIcon);
-            TrayIcon.ToolTipText = $"Media Downloader - {_viewModel.StatusText}";
-        }
-        catch
-        {
-            // Tray icon may not be available in headless/CI environments
-        }
+        var hIcon = bmp.GetHicon();
+        TrayIcon.Icon = System.Drawing.Icon.FromHandle(hIcon);
+        TrayIcon.ToolTipText = $"Media Downloader - {_viewModel.StatusText}";
     }
 
     private void Window_StateChanged(object sender, EventArgs e)
@@ -89,8 +68,7 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized)
         {
             Hide();
-            try { TrayIcon.ShowBalloonTip("Media Downloader", "Minimized to system tray.", Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info); }
-            catch { /* Tray not available */ }
+            TrayIcon.ShowBalloonTip("Media Downloader", "Minimized to system tray.", Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info);
         }
     }
 
@@ -105,29 +83,22 @@ public partial class MainWindow : Window
         }
 
         _viewModel.Dispose();
-        try { TrayIcon.Dispose(); } catch { }
+        TrayIcon.Dispose();
     }
 
     private void TrayIcon_DoubleClick(object sender, RoutedEventArgs e) => RestoreWindow();
     private void TrayOpen_Click(object sender, RoutedEventArgs e) => RestoreWindow();
 
     private async void TrayStart_Click(object sender, RoutedEventArgs e)
-    {
-        try { await _viewModel.InitializeAsync(); }
-        catch { /* best effort */ }
-    }
+        => await _viewModel.InitializeAsync();
 
     private async void TrayStop_Click(object sender, RoutedEventArgs e)
-    {
-        try { await _viewModel.ShutdownAsync(); }
-        catch { /* best effort */ }
-    }
+        => await _viewModel.ShutdownAsync();
 
     private async void TrayExit_Click(object sender, RoutedEventArgs e)
     {
         _isExiting = true;
-        try { await _viewModel.ShutdownAsync(); }
-        catch { /* best effort */ }
+        await _viewModel.ShutdownAsync();
         Application.Current.Shutdown();
     }
 

@@ -4,8 +4,9 @@ import { test as base, expect, Page } from '@playwright/test';
 export const mockData = {
   status: {
     status: 'ok',
-    media_dir: 'C:\\Users\\Me\\Media',
-    archive_dir: 'D:\\Media',
+    movies_dir: 'C:\\Media\\Movies',
+    tv_dir: 'C:\\Media\\TV',
+    anime_dir: 'C:\\Media\\Anime',
     mpc_be_url: 'http://localhost:13579',
   },
 
@@ -243,7 +244,7 @@ export async function mockAllApis(page: Page) {
 
   await page.route('**/api/settings', (route) => {
     if (route.request().method() === 'POST') {
-      return route.fulfill({ json: { ok: true, written: ['MEDIA_DIR'] } });
+      return route.fulfill({ json: { ok: true, written: ['MOVIES_DIR'] } });
     }
     return route.fulfill({ json: mockData.settings });
   });

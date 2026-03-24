@@ -17,8 +17,9 @@ describe('apiClient', () => {
     it('should fetch status and return response', async () => {
       const mockResponse = {
         status: 'ok',
-        media_dir: '/media',
-        archive_dir: '/archive',
+        movies_dir: '/movies',
+        tv_dir: '/tv',
+        anime_dir: '/anime',
         mpc_be_url: 'http://localhost:13579',
       };
       fetchMock.mockResolvedValueOnce({

@@ -19,9 +19,15 @@ public class SettingsViewModel : ViewModelBase
     private string _tmdbApiKey = "";
     private string _realDebridApiKey = "";
 
-    // Unified directories
-    private string _mediaDir = "";
-    private string _archiveDir = "";
+    // Library Dirs
+    private string _moviesDir = "";
+    private string _tvDir = "";
+    private string _animeDir = "";
+
+    // Archive Dirs
+    private string _moviesDirArchive = "";
+    private string _tvDirArchive = "";
+    private string _animeDirArchive = "";
 
     // Other Paths
     private string _downloadsDir = "";
@@ -39,8 +45,12 @@ public class SettingsViewModel : ViewModelBase
 
     public string TmdbApiKey { get => _tmdbApiKey; set { if (SetField(ref _tmdbApiKey, value)) MarkDirty(); } }
     public string RealDebridApiKey { get => _realDebridApiKey; set { if (SetField(ref _realDebridApiKey, value)) MarkDirty(); } }
-    public string MediaDir { get => _mediaDir; set { if (SetField(ref _mediaDir, value)) MarkDirty(); } }
-    public string ArchiveDir { get => _archiveDir; set { if (SetField(ref _archiveDir, value)) MarkDirty(); } }
+    public string MoviesDir { get => _moviesDir; set { if (SetField(ref _moviesDir, value)) MarkDirty(); } }
+    public string TvDir { get => _tvDir; set { if (SetField(ref _tvDir, value)) MarkDirty(); } }
+    public string AnimeDir { get => _animeDir; set { if (SetField(ref _animeDir, value)) MarkDirty(); } }
+    public string MoviesDirArchive { get => _moviesDirArchive; set { if (SetField(ref _moviesDirArchive, value)) MarkDirty(); } }
+    public string TvDirArchive { get => _tvDirArchive; set { if (SetField(ref _tvDirArchive, value)) MarkDirty(); } }
+    public string AnimeDirArchive { get => _animeDirArchive; set { if (SetField(ref _animeDirArchive, value)) MarkDirty(); } }
     public string DownloadsDir { get => _downloadsDir; set { if (SetField(ref _downloadsDir, value)) MarkDirty(); } }
     public string PostersDir { get => _postersDir; set { if (SetField(ref _postersDir, value)) MarkDirty(); } }
     public string MpcBeUrl { get => _mpcBeUrl; set { if (SetField(ref _mpcBeUrl, value)) MarkDirty(); } }
@@ -94,8 +104,12 @@ public class SettingsViewModel : ViewModelBase
         // Suppress dirty tracking during load
         _tmdbApiKey = s.TmdbApiKey; OnPropertyChanged(nameof(TmdbApiKey));
         _realDebridApiKey = s.RealDebridApiKey; OnPropertyChanged(nameof(RealDebridApiKey));
-        _mediaDir = s.MediaDir; OnPropertyChanged(nameof(MediaDir));
-        _archiveDir = s.ArchiveDir; OnPropertyChanged(nameof(ArchiveDir));
+        _moviesDir = s.MoviesDir; OnPropertyChanged(nameof(MoviesDir));
+        _tvDir = s.TvDir; OnPropertyChanged(nameof(TvDir));
+        _animeDir = s.AnimeDir; OnPropertyChanged(nameof(AnimeDir));
+        _moviesDirArchive = s.MoviesDirArchive; OnPropertyChanged(nameof(MoviesDirArchive));
+        _tvDirArchive = s.TvDirArchive; OnPropertyChanged(nameof(TvDirArchive));
+        _animeDirArchive = s.AnimeDirArchive; OnPropertyChanged(nameof(AnimeDirArchive));
         _downloadsDir = s.DownloadsDir; OnPropertyChanged(nameof(DownloadsDir));
         _postersDir = s.PostersDir; OnPropertyChanged(nameof(PostersDir));
         _mpcBeUrl = s.MpcBeUrl; OnPropertyChanged(nameof(MpcBeUrl));
@@ -112,8 +126,12 @@ public class SettingsViewModel : ViewModelBase
         {
             TmdbApiKey = TmdbApiKey,
             RealDebridApiKey = RealDebridApiKey,
-            MediaDir = MediaDir,
-            ArchiveDir = ArchiveDir,
+            MoviesDir = MoviesDir,
+            TvDir = TvDir,
+            AnimeDir = AnimeDir,
+            MoviesDirArchive = MoviesDirArchive,
+            TvDirArchive = TvDirArchive,
+            AnimeDirArchive = AnimeDirArchive,
             DownloadsDir = DownloadsDir,
             PostersDir = PostersDir,
             MpcBeUrl = MpcBeUrl,

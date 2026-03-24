@@ -6,9 +6,15 @@ public class AppSettings
     public string TmdbApiKey { get; set; } = "";
     public string RealDebridApiKey { get; set; } = "";
 
-    // Unified directories
-    public string MediaDir { get; set; } = "";
-    public string ArchiveDir { get; set; } = "";
+    // Library Directories (primary/fast storage)
+    public string MoviesDir { get; set; } = "";
+    public string TvDir { get; set; } = "";
+    public string AnimeDir { get; set; } = "";
+
+    // Archive Directories (secondary/slow storage)
+    public string MoviesDirArchive { get; set; } = "";
+    public string TvDirArchive { get; set; } = "";
+    public string AnimeDirArchive { get; set; } = "";
 
     // Other Paths
     public string DownloadsDir { get; set; } = "";
@@ -28,8 +34,12 @@ public class AppSettings
     {
         ["TmdbApiKey"] = "TMDB_API_KEY",
         ["RealDebridApiKey"] = "REAL_DEBRID_API_KEY",
-        ["MediaDir"] = "MEDIA_DIR",
-        ["ArchiveDir"] = "ARCHIVE_DIR",
+        ["MoviesDir"] = "MOVIES_DIR",
+        ["TvDir"] = "TV_DIR",
+        ["AnimeDir"] = "ANIME_DIR",
+        ["MoviesDirArchive"] = "MOVIES_DIR_ARCHIVE",
+        ["TvDirArchive"] = "TV_DIR_ARCHIVE",
+        ["AnimeDirArchive"] = "ANIME_DIR_ARCHIVE",
         ["DownloadsDir"] = "DOWNLOADS_DIR",
         ["PostersDir"] = "POSTERS_DIR",
         ["MpcBeUrl"] = "MPC_BE_URL",
@@ -52,9 +62,7 @@ public class AppSettings
         foreach (var (prop, envKey) in PropertyToEnvKey)
         {
             var value = GetType().GetProperty(prop)?.GetValue(this)?.ToString() ?? "";
-            // Only write non-empty values to avoid overriding server-side defaults
-            if (!string.IsNullOrEmpty(value))
-                dict[envKey] = value;
+            dict[envKey] = value;
         }
         return dict;
     }
