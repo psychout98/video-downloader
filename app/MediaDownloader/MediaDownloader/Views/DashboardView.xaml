@@ -53,18 +53,22 @@
                     <Button Content="Start"
                             Command="{Binding StartCommand}"
                             Style="{StaticResource AccentButton}"
+                            AutomationProperties.AutomationId="StartButton"
                             Margin="0,0,8,0" />
                     <Button Content="Stop"
                             Command="{Binding StopCommand}"
                             Style="{StaticResource SecondaryButton}"
+                            AutomationProperties.AutomationId="StopButton"
                             Margin="0,0,8,0" />
                     <Button Content="Restart"
                             Command="{Binding RestartCommand}"
                             Style="{StaticResource SecondaryButton}"
+                            AutomationProperties.AutomationId="RestartButton"
                             Margin="0,0,8,0" />
                     <Button Content="Open Web UI"
                             Command="{Binding OpenWebUiCommand}"
-                            Style="{StaticResource AccentButton}" />
+                            Style="{StaticResource AccentButton}"
+                            AutomationProperties.AutomationId="OpenWebUiButton" />
                 </StackPanel>
             </Grid>
         </Border>

@@ -1,5 +1,5 @@
 ; Media Downloader - Inno Setup Script
-; Installs the WPF app, Python server, and sets up the environment.
+; Installs the WPF app (with in-process Kestrel server) and sets up the environment.
 
 #define MyAppName "Media Downloader"
 #define MyAppVersion "1.0.0"
@@ -38,13 +38,8 @@ Name: "startupentry"; Description: "Start on Windows login"; GroupDescription: "
 ; WPF Application
 Source: "..\build\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Python server
-Source: "..\server\*"; DestDir: "{app}\server"; Flags: ignoreversion recursesubdirs createallsubdirs
-
-; Support files
-Source: "..\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\run_server.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\stop_server.bat"; DestDir: "{app}"; Flags: ignoreversion
+; Static web assets (frontend)
+Source: "..\server\static\*"; DestDir: "{app}\server\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Dirs]
 Name: "{app}\logs"
@@ -61,16 +56,6 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MediaDownloader"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startupentry
 
 [Run]
-; Remove stale venv from previous install, then create fresh one
-Filename: "cmd"; Parameters: "/c rmdir /s /q ""{app}\.venv"""; StatusMsg: "Removing old virtual environment..."; Flags: runhidden waituntilterminated; Check: OldVenvExists
-; Use the Python Launcher (py.exe) which is reliably on PATH for Windows Python installs
-Filename: "py"; Parameters: "-3 -m venv --clear ""{app}\.venv"""; StatusMsg: "Creating Python virtual environment..."; Flags: runhidden waituntilterminated; Check: PythonLauncherExists
-; Fallback: try 'python' directly if py launcher not found
-Filename: "python"; Parameters: "-m venv --clear ""{app}\.venv"""; StatusMsg: "Creating Python virtual environment..."; Flags: runhidden waituntilterminated; Check: NeedPythonFallback
-; Upgrade pip before installing dependencies
-Filename: "{app}\.venv\Scripts\python.exe"; Parameters: "-m pip install --upgrade pip --quiet"; StatusMsg: "Upgrading pip..."; Flags: runhidden waituntilterminated; Check: VenvCreated
-Filename: "{app}\.venv\Scripts\pip.exe"; Parameters: "install -r ""{app}\requirements.txt"" --quiet"; StatusMsg: "Installing Python dependencies..."; Flags: runhidden waituntilterminated; Check: VenvCreated
-
 ; Add firewall rule
 Filename: "netsh"; Parameters: "advfirewall firewall add rule name=""MediaDownloader"" dir=in action=allow protocol=TCP localport=8000"; StatusMsg: "Adding firewall rule..."; Flags: runhidden waituntilterminated
 
@@ -81,37 +66,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: no
 ; Remove firewall rule
 Filename: "netsh"; Parameters: "advfirewall firewall delete rule name=""MediaDownloader"""; Flags: runhidden waituntilterminated
 
-[Code]
-function OldVenvExists(): Boolean;
-begin
-  Result := DirExists(ExpandConstant('{app}\.venv'));
-end;
-
-function PythonLauncherExists(): Boolean;
-var
-  ResultCode: Integer;
-begin
-  // Check if 'py' launcher is available
-  Result := Exec('py', '--version', '', SW_HIDE, ewWaitUntilTerminated, ResultCode)
-            and (ResultCode = 0);
-end;
-
-function NeedPythonFallback(): Boolean;
-begin
-  // Only try 'python' if the py launcher failed AND venv doesn't exist yet
-  Result := (not PythonLauncherExists()) and
-            (not FileExists(ExpandConstant('{app}\.venv\Scripts\python.exe')));
-end;
-
-function VenvCreated(): Boolean;
-begin
-  Result := FileExists(ExpandConstant('{app}\.venv\Scripts\python.exe'));
-end;
-
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\logs"
 Type: files; Name: "{app}\.env"
-Type: files; Name: "{app}\server.pid"
 Type: files; Name: "{app}\.version"
 Type: files; Name: "{app}\media_downloader.db"

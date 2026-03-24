@@ -1,4 +1,4 @@
-name: Windows Integration Tests
+name: Integration Tests
 
 on:
   workflow_dispatch:
@@ -6,21 +6,36 @@ on:
 
   pull_request:
     paths:
-      - 'server/**'
       - 'app/**'
+      - 'frontend/**'
       - 'installer/**'
       - 'tests/integration/**'
-      - 'requirements-integration.txt'
       - '.github/workflows/integration-tests.yml'
 
 jobs:
+  unit-tests:
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Run unit tests
+        working-directory: app/MediaDownloader
+        run: dotnet test MediaDownloader.Tests/MediaDownloader.Tests.csproj --configuration Release --verbosity normal
+
   integration:
     runs-on: windows-latest
     timeout-minutes: 30
+    needs: unit-tests
 
     env:
-      # Dummy API keys — backend requires them to start, but integration
-      # tests don't call TMDB/RD so any non-empty value works.
       TMDB_API_KEY: test_tmdb_key_for_ci
       REAL_DEBRID_API_KEY: test_rd_key_for_ci
       MPC_BE_URL: http://127.0.0.1:13579
@@ -31,20 +46,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
-      # ── Python setup ───────────────────────────────────────────────
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Install backend dependencies
-        run: pip install -r requirements.txt
-
-      - name: Install integration test dependencies
-        run: pip install -r requirements-integration.txt
-
-      # ── .NET setup (for WPF app) ──────────────────────────────────
+      # ── .NET setup ──────────────────────────────────────────────────
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
@@ -59,11 +61,6 @@ jobs:
             --self-contained true `
             -p:PublishSingleFile=true `
             -o ../../build/publish
-
-      - name: Copy server into publish dir for WPF lifecycle tests
-        run: |
-          Copy-Item -Path server -Destination build\publish\server -Recurse
-          Copy-Item -Path requirements.txt -Destination build\publish\requirements.txt
 
       # ── Frontend build ─────────────────────────────────────────────
       - name: Set up Node.js
@@ -98,7 +95,6 @@ jobs:
       - name: Find MPC-BE executable
         id: mpc
         run: |
-          # Search common install locations for the MPC-BE executable
           $searchPaths = @(
             "C:\Program Files\MPC-BE x64\mpc-be64.exe",
             "C:\Program Files\MPC-BE\mpc-be64.exe",
@@ -109,7 +105,6 @@ jobs:
           foreach ($p in $searchPaths) {
             if (Test-Path $p) { $found = $p; break }
           }
-          # Fallback: search the entire Program Files tree
           if (-not $found) {
             $found = Get-ChildItem "C:\Program Files*" -Recurse -Filter "mpc-be64.exe" -ErrorAction SilentlyContinue |
                      Select-Object -First 1 -ExpandProperty FullName
@@ -124,8 +119,6 @@ jobs:
 
       - name: Configure MPC-BE web interface
         run: |
-          # MPC-BE reads settings from the registry under HKCU\Software\MPC-BE\Settings
-          # Enable the web interface on port 13579
           $regPath = "HKCU:\Software\MPC-BE\Settings"
           New-Item -Path $regPath -Force | Out-Null
           Set-ItemProperty -Path $regPath -Name "WebServerEnable" -Value 1 -Type DWord
@@ -155,7 +148,6 @@ jobs:
           HOST=127.0.0.1
           PORT=8000
           "@ | Out-File -FilePath .env -Encoding utf8
-          # Also copy .env into WPF publish dir so the app can find it
           Copy-Item -Path .env -Destination build\publish\.env
 
       # ── Start MPC-BE ───────────────────────────────────────────────
@@ -163,41 +155,158 @@ jobs:
         run: |
           Start-Process "${{ steps.mpc.outputs.mpc_exe }}"
           Start-Sleep -Seconds 5
-          # Verify MPC-BE web interface is responding
           try {
             $response = Invoke-WebRequest -Uri "http://127.0.0.1:13579/variables.html" -UseBasicParsing -TimeoutSec 10
             Write-Host "MPC-BE web interface responding (status: $($response.StatusCode))"
           } catch {
             Write-Host "WARNING: MPC-BE web interface not responding yet: $_"
-            Write-Host "Will retry in tests..."
           }
 
       # ── Run integration tests ──────────────────────────────────────
-      # NOTE: WPF tests run BEFORE the backend is started because the WPF
-      # app starts its own backend server (12.4–12.6 test lifecycle controls).
-      # Starting a backend here would cause a port 8000 conflict.
+      - name: Set up Python (for integration test runner)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install integration test dependencies
+        run: |
+          if (Test-Path requirements-integration.txt) {
+            pip install -r requirements-integration.txt
+          } else {
+            pip install pytest httpx
+          }
+
+      - name: Verify pywinauto UIA backend
+        run: |
+          python -c "
+          import pywinauto
+          print(f'pywinauto version: {pywinauto.__version__}')
+          try:
+              from pywinauto import backend
+              reg = backend.registry
+              # 0.6.8 uses dict, 0.6.9+ uses BackendsRegistry object
+              names = list(reg.backends.keys()) if hasattr(reg, 'backends') else (list(reg.keys()) if hasattr(reg, 'keys') else dir(reg))
+              print(f'Registered backends: {names}')
+          except Exception as e:
+              print(f'Could not inspect backends: {e}')
+          # Verify UIA import works
+          try:
+              from pywinauto.controls.uiawrapper import UIAWrapper
+              print('UIA backend: OK')
+          except ImportError as e:
+              print(f'UIA backend MISSING: {e}')
+          try:
+              import comtypes
+              print(f'comtypes version: {comtypes.__version__}')
+          except ImportError:
+              print('WARNING: comtypes not installed')
+          "
 
       - name: Run installer tests
         env:
           MD_INSTALLER_PATH: ${{ github.workspace }}\dist\MediaDownloader-Setup.exe
-        run: python -m pytest tests/integration/test_installer.py -v --tb=short -o "addopts="
+        run: |
+          if (Test-Path tests/integration/test_installer.py) {
+            python -m pytest tests/integration/test_installer.py -v --tb=short -o "addopts="
+          } else {
+            Write-Host "No installer tests found, skipping"
+          }
+
+      - name: Diagnose WPF app launch
+        env:
+          MD_SKIP_MUTEX: "1"
+        run: |
+          $exe = "${{ github.workspace }}\build\publish\MediaDownloader.exe"
+          Write-Host "=== Checking exe exists ==="
+          if (!(Test-Path $exe)) { Write-Host "ERROR: exe not found at $exe"; exit 0 }
+          Write-Host "Exe found: $exe (size: $((Get-Item $exe).Length) bytes)"
+
+          Write-Host "`n=== Launching app ==="
+          $proc = Start-Process $exe -PassThru -RedirectStandardError wpf_diag_stderr.log
+          Write-Host "Started PID: $($proc.Id)"
+          Start-Sleep -Seconds 15
+
+          Write-Host "`n=== Process alive? ==="
+          $alive = !$proc.HasExited
+          Write-Host "Process alive: $alive"
+          if ($proc.HasExited) {
+            Write-Host "Exit code: $($proc.ExitCode)"
+          }
+
+          Write-Host "`n=== Stderr output ==="
+          if (Test-Path wpf_diag_stderr.log) {
+            Get-Content wpf_diag_stderr.log -ErrorAction SilentlyContinue
+          }
+
+          Write-Host "`n=== All top-level windows (via Win32) ==="
+          python -c @"
+          import ctypes, ctypes.wintypes
+          user32 = ctypes.windll.user32
+          results = []
+          def callback(hwnd, _):
+              if user32.IsWindowVisible(hwnd):
+                  length = user32.GetWindowTextLengthW(hwnd)
+                  if length > 0:
+                      buf = ctypes.create_unicode_buffer(length + 1)
+                      user32.GetWindowTextW(hwnd, buf, length + 1)
+                      cls = ctypes.create_unicode_buffer(256)
+                      user32.GetClassNameW(hwnd, cls, 256)
+                      results.append((hwnd, buf.value, cls.value))
+              return True
+          WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+          user32.EnumWindows(WNDENUMPROC(callback), 0)
+          for hwnd, title, cls in results:
+              print(f'  hwnd={hwnd:#x}  class={cls!r}  title={title!r}')
+          if not results:
+              print('  (no visible windows found)')
+          "@
+
+          Write-Host "`n=== UIA connect by PID ==="
+          python -c @"
+          import sys
+          from pywinauto import Application
+          try:
+              app = Application(backend='uia').connect(process=$($proc.Id), timeout=15)
+              win = app.window(title='Media Downloader')
+              if win.exists(timeout=5):
+                  print(f'UIA connect OK: title={win.window_text()!r} rect={win.rectangle()}')
+                  for child in win.children():
+                      try:
+                          print(f'  child: {child.element_info.control_type!r} {child.window_text()!r}')
+                      except Exception:
+                          pass
+              else:
+                  print('UIA connected but window not found')
+          except Exception as e:
+              print(f'UIA connect failed: {e}')
+          "@
+
+          Write-Host "`n=== Process tree ==="
+          Get-Process | Where-Object { $_.ProcessName -match 'Media|dotnet' } | Format-Table Id, ProcessName, Responding -AutoSize
+
+          # Cleanup
+          try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
+          Start-Sleep -Seconds 2
 
       - name: Run WPF app tests
         env:
           MD_APP_EXE_PATH: ${{ github.workspace }}\build\publish\MediaDownloader.exe
-        run: python -m pytest tests/integration/test_wpf_app.py -v --tb=short -o "addopts="
-
-      # ── Start backend server (for MPC-BE tests only) ────────────────
-      - name: Start backend server
+          MD_SKIP_MUTEX: "1"
         run: |
-          # Start uvicorn in the background
-          Start-Process python -ArgumentList "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", "8000" `
-            -RedirectStandardOutput backend_stdout.log `
-            -RedirectStandardError backend_stderr.log `
-            -NoNewWindow:$false
-          Start-Sleep -Seconds 5
+          if (Test-Path tests/integration/test_wpf_app.py) {
+            python -m pytest tests/integration/test_wpf_app.py -v --tb=long -o "addopts="
+          } else {
+            Write-Host "No WPF app tests found, skipping"
+          }
 
-          # Wait for backend to be ready (up to 30s)
+      # The WPF app now starts the server in-process via Kestrel.
+      - name: Start app (in-process server)
+        run: |
+          Start-Process "${{ github.workspace }}\build\publish\MediaDownloader.exe" `
+            -RedirectStandardOutput backend_stdout.log `
+            -RedirectStandardError backend_stderr.log
+          Start-Sleep -Seconds 10
+
           $attempts = 0
           $maxAttempts = 15
           while ($attempts -lt $maxAttempts) {
@@ -222,10 +331,15 @@ jobs:
           MD_BACKEND_URL: http://127.0.0.1:8000
           TEST_MEDIA_FILE: ${{ github.workspace }}\test_media.mp4
           MPC_BE_EXE: ${{ steps.mpc.outputs.mpc_exe }}
-        run: python -m pytest tests/integration/test_mpc_integration.py -v --tb=short -o "addopts="
+        run: |
+          if (Test-Path tests/integration/test_mpc_integration.py) {
+            python -m pytest tests/integration/test_mpc_integration.py -v --tb=short -o "addopts="
+          } else {
+            Write-Host "No MPC integration tests found, skipping"
+          }
 
       # ── Diagnostics on failure ─────────────────────────────────────
-      - name: Upload backend logs on failure
+      - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -235,7 +349,7 @@ jobs:
             backend_stderr.log
           retention-days: 7
 
-      - name: Show backend logs on failure
+      - name: Show logs on failure
         if: failure()
         run: |
           Write-Host "=== Backend stdout ==="

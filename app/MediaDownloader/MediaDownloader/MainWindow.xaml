@@ -32,17 +32,17 @@
             </tb:TaskbarIcon.ContextMenu>
         </tb:TaskbarIcon>
 
-        <TabControl>
-            <TabItem Header="Dashboard">
+        <TabControl AutomationProperties.AutomationId="MainTabControl">
+            <TabItem Header="Dashboard" AutomationProperties.AutomationId="DashboardTab">
                 <views:DashboardView x:Name="DashboardTab" />
             </TabItem>
-            <TabItem Header="Settings">
+            <TabItem Header="Settings" AutomationProperties.AutomationId="SettingsTab">
                 <views:SettingsView x:Name="SettingsTab" />
             </TabItem>
-            <TabItem Header="Logs">
+            <TabItem Header="Logs" AutomationProperties.AutomationId="LogsTab">
                 <views:LogsView x:Name="LogsTab" />
             </TabItem>
-            <TabItem Header="Updates">
+            <TabItem Header="Updates" AutomationProperties.AutomationId="UpdatesTab">
                 <views:UpdateView x:Name="UpdateTab" />
             </TabItem>
         </TabControl>
