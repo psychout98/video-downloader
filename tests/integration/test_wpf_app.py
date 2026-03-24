@@ -48,34 +48,29 @@ skip_no_pywinauto = pytest.mark.skipif(
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _dump_windows_diagnostics(process_pid: int | None = None) -> str:
-    """Dump all visible windows for diagnostic purposes."""
+def _dump_win32_windows() -> str:
+    """List all visible windows using Win32 API (more reliable than UIA)."""
+    import ctypes
+    import ctypes.wintypes
+    user32 = ctypes.windll.user32
     lines = []
-    try:
-        desktop = Desktop(backend="uia")
-        windows = desktop.windows()
-        lines.append(f"UIA windows found: {len(windows)}")
-        for w in windows:
-            try:
-                lines.append(
-                    f"  title={w.window_text()!r}  "
-                    f"class={w.element_info.class_name!r}  "
-                    f"visible={w.is_visible()}  "
-                    f"rect={w.rectangle()}"
-                )
-            except Exception as e:
-                lines.append(f"  (error: {e})")
-    except Exception as e:
-        lines.append(f"Error enumerating windows: {e}")
 
-    if process_pid:
-        try:
-            proc = psutil.Process(process_pid)
-            lines.append(f"Process {process_pid}: status={proc.status()}, name={proc.name()}")
-        except psutil.NoSuchProcess:
-            lines.append(f"Process {process_pid}: NOT FOUND (already exited)")
+    def callback(hwnd, _):
+        if user32.IsWindowVisible(hwnd):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buf = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buf, length + 1)
+                cls = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(hwnd, cls, 256)
+                lines.append(f"  hwnd={hwnd:#x}  class={cls.value!r}  title={buf.value!r}")
+        return True
 
-    return "\n".join(lines)
+    WNDENUMPROC = ctypes.WINFUNCTYPE(
+        ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM,
+    )
+    user32.EnumWindows(WNDENUMPROC(callback), 0)
+    return "\n".join(lines) if lines else "  (no visible windows found)"
 
 
 def _wait_for_status(main_window, expected: str, timeout: int = 30) -> bool:
@@ -126,53 +121,65 @@ def _kill_all_media_downloader() -> None:
             pass
 
 
-def _find_wpf_window(app: Application, timeout: int = 60):
-    """Try to find the WPF main window, with progressive diagnostics."""
-    main_window = app.window(title="Media Downloader")
+def _connect_uia(pid: int, timeout: int = 60) -> tuple[Application, object]:
+    """Connect pywinauto UIA to a running process, with retries and diagnostics.
 
-    # Try waiting for visibility
+    The GHA runner's UIA Desktop enumeration is broken (returns 0 windows even
+    though Win32 sees them), but connecting to a *specific* process by PID
+    may still work because it bypasses the broken desktop-wide COM enumeration.
+
+    Falls back to ``backend="win32"`` for basic window verification if UIA
+    completely fails.
+    """
     deadline = time.monotonic() + timeout
-    last_diag_time = 0.0
+    last_diag = 0.0
+    last_err = None
 
     while time.monotonic() < deadline:
+        # Make sure process is still alive
         try:
-            # Check if process is still alive
-            proc = psutil.Process(app.process)
-            if proc.status() == "zombie" or not proc.is_running():
-                diag = _dump_windows_diagnostics(app.process)
-                pytest.fail(
-                    f"App process {app.process} died before window appeared.\n"
-                    f"Process status: {proc.status()}\n"
-                    f"Window diagnostics:\n{diag}"
-                )
+            p = psutil.Process(pid)
+            if not p.is_running():
+                raise RuntimeError(f"Process {pid} exited (status={p.status()})")
         except psutil.NoSuchProcess:
-            diag = _dump_windows_diagnostics(app.process)
-            pytest.fail(
-                f"App process {app.process} exited before window appeared.\n"
-                f"Window diagnostics:\n{diag}"
-            )
+            raise RuntimeError(f"Process {pid} no longer exists")
 
+        # Try UIA connect by PID
         try:
-            if main_window.exists() and main_window.is_visible():
-                return main_window
-        except Exception:
-            pass
+            app = Application(backend="uia").connect(process=pid, timeout=10)
+            win = app.window(title="Media Downloader")
+            if win.exists(timeout=5):
+                print(f"UIA connected to PID {pid}", file=sys.stderr)
+                return app, win
+        except Exception as e:
+            last_err = e
 
-        # Dump diagnostics every 15 seconds
+        # Periodic diagnostics
         now = time.monotonic()
-        if now - last_diag_time > 15:
-            print(f"\n--- Diagnostics at {int(now - (deadline - timeout))}s ---",
-                  file=sys.stderr)
-            print(_dump_windows_diagnostics(app.process), file=sys.stderr)
-            last_diag_time = now
+        if now - last_diag > 10:
+            elapsed = int(now - (deadline - timeout))
+            print(f"\n--- [{elapsed}s] UIA connect failed: {last_err}", file=sys.stderr)
+            print(f"--- Win32 windows:\n{_dump_win32_windows()}", file=sys.stderr)
+            last_diag = now
 
-        time.sleep(1)
+        time.sleep(2)
 
-    # Final diagnostic dump on timeout
-    diag = _dump_windows_diagnostics(app.process)
+    # UIA completely failed — try win32 backend as last resort
+    print("UIA failed after timeout. Trying win32 backend...", file=sys.stderr)
+    try:
+        app = Application(backend="win32").connect(process=pid, timeout=10)
+        win = app.window(title="Media Downloader")
+        if win.exists(timeout=5):
+            print(f"win32 backend connected to PID {pid}", file=sys.stderr)
+            return app, win
+    except Exception as e:
+        last_err = e
+
+    diag = _dump_win32_windows()
     pytest.fail(
-        f"WPF window 'Media Downloader' did not become visible within {timeout}s.\n"
-        f"Window diagnostics:\n{diag}"
+        f"Could not connect to WPF window within {timeout}s.\n"
+        f"Last error: {last_err}\n"
+        f"Win32 windows:\n{diag}"
     )
 
 
@@ -181,21 +188,30 @@ def _find_wpf_window(app: Application, timeout: int = 60):
 
 @pytest.fixture()
 def app_window(app_exe_path):
-    """Launch the WPF app and yield the main window. Tears down after test."""
+    """Launch the WPF app and yield the main window. Tears down after test.
+
+    Uses subprocess.Popen to start the process, then connects pywinauto
+    by PID.  This avoids pywinauto's ``Application.start()`` which relies
+    on the UIA Desktop enumeration that is broken on GHA Windows runners.
+    """
     # Kill any leftover instances from previous tests
     _kill_all_media_downloader()
     time.sleep(1)
 
     # Skip single-instance mutex check so each test can start a fresh instance
-    os.environ["MD_SKIP_MUTEX"] = "1"
+    env = os.environ.copy()
+    env["MD_SKIP_MUTEX"] = "1"
 
     print(f"\nLaunching: {app_exe_path}", file=sys.stderr)
-    print(f"Exe exists: {os.path.isfile(app_exe_path)}", file=sys.stderr)
+    assert os.path.isfile(app_exe_path), f"Exe not found: {app_exe_path}"
 
-    app = Application(backend="uia").start(app_exe_path)
-    print(f"Process started: PID={app.process}", file=sys.stderr)
+    proc = subprocess.Popen([app_exe_path], env=env)
+    print(f"Process started: PID={proc.pid}", file=sys.stderr)
 
-    main_window = _find_wpf_window(app, timeout=60)
+    # Give the WPF app time to create its window
+    time.sleep(5)
+
+    app, main_window = _connect_uia(proc.pid, timeout=60)
 
     yield app, main_window
 
@@ -208,8 +224,8 @@ def app_window(app_exe_path):
     except Exception:
         pass
     try:
-        proc = psutil.Process(app.process)
-        kill_process_tree(proc)
+        ps = psutil.Process(proc.pid)
+        kill_process_tree(ps)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
     # Wait for process to fully terminate and release ports

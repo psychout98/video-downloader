@@ -212,25 +212,8 @@ jobs:
             Get-Content wpf_diag_stderr.log -ErrorAction SilentlyContinue
           }
 
-          Write-Host "`n=== All visible windows (via UI Automation) ==="
-          python -c "
-          import sys
-          try:
-              from pywinauto import Desktop
-              desktop = Desktop(backend='uia')
-              windows = desktop.windows()
-              print(f'Found {len(windows)} windows:')
-              for w in windows:
-                  try:
-                      print(f'  - title={w.window_text()!r}  class={w.element_info.class_name!r}  visible={w.is_visible()}  rect={w.rectangle()}')
-                  except Exception as e:
-                      print(f'  - (error reading window: {e})')
-          except Exception as e:
-              print(f'Error enumerating windows: {e}', file=sys.stderr)
-          "
-
           Write-Host "`n=== All top-level windows (via Win32) ==="
-          python -c "
+          python -c @"
           import ctypes, ctypes.wintypes
           user32 = ctypes.windll.user32
           results = []
@@ -250,15 +233,30 @@ jobs:
               print(f'  hwnd={hwnd:#x}  class={cls!r}  title={title!r}')
           if not results:
               print('  (no visible windows found)')
-          "
+          "@
+
+          Write-Host "`n=== UIA connect by PID ==="
+          python -c @"
+          import sys
+          from pywinauto import Application
+          try:
+              app = Application(backend='uia').connect(process=$($proc.Id), timeout=15)
+              win = app.window(title='Media Downloader')
+              if win.exists(timeout=5):
+                  print(f'UIA connect OK: title={win.window_text()!r} rect={win.rectangle()}')
+                  for child in win.children():
+                      try:
+                          print(f'  child: {child.element_info.control_type!r} {child.window_text()!r}')
+                      except Exception:
+                          pass
+              else:
+                  print('UIA connected but window not found')
+          except Exception as e:
+              print(f'UIA connect failed: {e}')
+          "@
 
           Write-Host "`n=== Process tree ==="
-          python -c "
-          import psutil
-          for p in psutil.process_iter(['pid', 'name', 'status']):
-              if 'media' in (p.info['name'] or '').lower() or 'dotnet' in (p.info['name'] or '').lower():
-                  print(f\"  pid={p.info['pid']}  name={p.info['name']}  status={p.info['status']}\")
-          "
+          Get-Process | Where-Object { $_.ProcessName -match 'Media|dotnet' } | Format-Table Id, ProcessName, Responding -AutoSize
 
           # Cleanup
           try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {}
