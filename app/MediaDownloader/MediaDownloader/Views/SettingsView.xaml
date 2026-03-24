@@ -197,10 +197,12 @@
             <Button Content="Discard Changes"
                     Command="{Binding DiscardCommand}"
                     Style="{StaticResource SecondaryButton}"
+                    AutomationProperties.AutomationId="DiscardChangesButton"
                     Margin="0,0,8,0" />
             <Button Content="Save Settings"
                     Command="{Binding SaveCommand}"
-                    Style="{StaticResource AccentButton}" />
+                    Style="{StaticResource AccentButton}"
+                    AutomationProperties.AutomationId="SaveSettingsButton" />
         </StackPanel>
     </Grid>
 </UserControl>

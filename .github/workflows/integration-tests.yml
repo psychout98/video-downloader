@@ -176,6 +176,21 @@ jobs:
             pip install pytest httpx
           }
 
+      - name: Verify pywinauto UIA backend
+        run: |
+          python -c "
+          import pywinauto
+          print(f'pywinauto version: {pywinauto.__version__}')
+          from pywinauto.backend import registry
+          print(f'Registered backends: {list(registry.keys())}')
+          assert 'uia' in registry, 'UIA backend not registered! Install comtypes.'
+          try:
+              import comtypes
+              print(f'comtypes version: {comtypes.__version__}')
+          except ImportError:
+              print('WARNING: comtypes not installed')
+          "
+
       - name: Run installer tests
         env:
           MD_INSTALLER_PATH: ${{ github.workspace }}\dist\MediaDownloader-Setup.exe

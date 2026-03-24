@@ -128,8 +128,7 @@ def _connect_uia(pid: int, timeout: int = 60) -> tuple[Application, object]:
     though Win32 sees them), but connecting to a *specific* process by PID
     may still work because it bypasses the broken desktop-wide COM enumeration.
 
-    Falls back to ``backend="win32"`` for basic window verification if UIA
-    completely fails.
+    Does NOT fall back to win32 — WPF child controls are invisible to win32.
     """
     deadline = time.monotonic() + timeout
     last_diag = 0.0
@@ -164,22 +163,17 @@ def _connect_uia(pid: int, timeout: int = 60) -> tuple[Application, object]:
 
         time.sleep(2)
 
-    # UIA completely failed — try win32 backend as last resort
-    print("UIA failed after timeout. Trying win32 backend...", file=sys.stderr)
-    try:
-        app = Application(backend="win32").connect(process=pid, timeout=10)
-        win = app.window(title="Media Downloader")
-        if win.exists(timeout=5):
-            print(f"win32 backend connected to PID {pid}", file=sys.stderr)
-            return app, win
-    except Exception as e:
-        last_err = e
-
+    # Do NOT fall back to win32 — it can find the top-level HWND but cannot
+    # see any WPF child controls (buttons, tabs, text) because WPF renders
+    # everything inside a single HWND.  Falling back silently causes every
+    # child-element search to fail with a misleading timeout.
     diag = _dump_win32_windows()
     pytest.fail(
-        f"Could not connect to WPF window within {timeout}s.\n"
+        f"Could not connect via UIA to WPF window within {timeout}s.\n"
         f"Last error: {last_err}\n"
-        f"Win32 windows:\n{diag}"
+        f"Win32 windows (for reference):\n{diag}\n\n"
+        f"NOTE: win32 backend is NOT used because WPF child controls are only "
+        f"visible through UIA. Ensure comtypes is installed: pip install comtypes"
     )
 
 
@@ -212,6 +206,14 @@ def app_window(app_exe_path):
     time.sleep(5)
 
     app, main_window = _connect_uia(proc.pid, timeout=60)
+
+    # Verify UIA backend is active — win32 backend cannot see WPF child
+    # controls because WPF renders everything inside a single HWND.
+    assert app.backend.name == "uia", (
+        f"Expected UIA backend but got '{app.backend.name}'. "
+        "WPF apps require UIA for child control discovery. "
+        "Ensure comtypes is installed: pip install comtypes"
+    )
 
     yield app, main_window
 
