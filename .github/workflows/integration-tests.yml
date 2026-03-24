@@ -181,9 +181,20 @@ jobs:
           python -c "
           import pywinauto
           print(f'pywinauto version: {pywinauto.__version__}')
-          from pywinauto.backend import registry
-          print(f'Registered backends: {list(registry.keys())}')
-          assert 'uia' in registry, 'UIA backend not registered! Install comtypes.'
+          try:
+              from pywinauto import backend
+              reg = backend.registry
+              # 0.6.8 uses dict, 0.6.9+ uses BackendsRegistry object
+              names = list(reg.backends.keys()) if hasattr(reg, 'backends') else (list(reg.keys()) if hasattr(reg, 'keys') else dir(reg))
+              print(f'Registered backends: {names}')
+          except Exception as e:
+              print(f'Could not inspect backends: {e}')
+          # Verify UIA import works
+          try:
+              from pywinauto.controls.uiawrapper import UIAWrapper
+              print('UIA backend: OK')
+          except ImportError as e:
+              print(f'UIA backend MISSING: {e}')
           try:
               import comtypes
               print(f'comtypes version: {comtypes.__version__}')

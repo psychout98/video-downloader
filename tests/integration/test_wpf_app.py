@@ -209,8 +209,9 @@ def app_window(app_exe_path):
 
     # Verify UIA backend is active — win32 backend cannot see WPF child
     # controls because WPF renders everything inside a single HWND.
-    assert app.backend.name == "uia", (
-        f"Expected UIA backend but got '{app.backend.name}'. "
+    backend_name = getattr(app.backend, 'name', None) or str(app.backend)
+    assert "uia" in backend_name.lower(), (
+        f"Expected UIA backend but got '{backend_name}'. "
         "WPF apps require UIA for child control discovery. "
         "Ensure comtypes is installed: pip install comtypes"
     )
