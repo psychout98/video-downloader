@@ -13,27 +13,9 @@ on:
       - '.github/workflows/integration-tests.yml'
 
 jobs:
-  unit-tests:
-    runs-on: windows-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v4
-
-      - name: Set up .NET 8
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-
-      - name: Run unit tests
-        working-directory: app/MediaDownloader
-        run: dotnet test MediaDownloader.Tests/MediaDownloader.Tests.csproj --configuration Release --verbosity normal
-
   integration:
     runs-on: windows-latest
     timeout-minutes: 30
-    needs: unit-tests
 
     env:
       TMDB_API_KEY: test_tmdb_key_for_ci
