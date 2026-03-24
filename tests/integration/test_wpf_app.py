@@ -20,6 +20,8 @@ Run:
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import time
 
 import psutil
@@ -44,6 +46,36 @@ skip_no_pywinauto = pytest.mark.skipif(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _dump_windows_diagnostics(process_pid: int | None = None) -> str:
+    """Dump all visible windows for diagnostic purposes."""
+    lines = []
+    try:
+        desktop = Desktop(backend="uia")
+        windows = desktop.windows()
+        lines.append(f"UIA windows found: {len(windows)}")
+        for w in windows:
+            try:
+                lines.append(
+                    f"  title={w.window_text()!r}  "
+                    f"class={w.element_info.class_name!r}  "
+                    f"visible={w.is_visible()}  "
+                    f"rect={w.rectangle()}"
+                )
+            except Exception as e:
+                lines.append(f"  (error: {e})")
+    except Exception as e:
+        lines.append(f"Error enumerating windows: {e}")
+
+    if process_pid:
+        try:
+            proc = psutil.Process(process_pid)
+            lines.append(f"Process {process_pid}: status={proc.status()}, name={proc.name()}")
+        except psutil.NoSuchProcess:
+            lines.append(f"Process {process_pid}: NOT FOUND (already exited)")
+
+    return "\n".join(lines)
 
 
 def _wait_for_status(main_window, expected: str, timeout: int = 30) -> bool:
@@ -84,6 +116,66 @@ def _click_stop_and_wait(main_window, timeout: int = 30) -> None:
         "Server did not stop — 'Stopped' not found"
 
 
+def _kill_all_media_downloader() -> None:
+    """Kill all MediaDownloader processes."""
+    for proc in psutil.process_iter(["name"]):
+        try:
+            if proc.info["name"] and "MediaDownloader" in proc.info["name"]:
+                kill_process_tree(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+
+def _find_wpf_window(app: Application, timeout: int = 60):
+    """Try to find the WPF main window, with progressive diagnostics."""
+    main_window = app.window(title="Media Downloader")
+
+    # Try waiting for visibility
+    deadline = time.monotonic() + timeout
+    last_diag_time = 0.0
+
+    while time.monotonic() < deadline:
+        try:
+            # Check if process is still alive
+            proc = psutil.Process(app.process)
+            if proc.status() == "zombie" or not proc.is_running():
+                diag = _dump_windows_diagnostics(app.process)
+                pytest.fail(
+                    f"App process {app.process} died before window appeared.\n"
+                    f"Process status: {proc.status()}\n"
+                    f"Window diagnostics:\n{diag}"
+                )
+        except psutil.NoSuchProcess:
+            diag = _dump_windows_diagnostics(app.process)
+            pytest.fail(
+                f"App process {app.process} exited before window appeared.\n"
+                f"Window diagnostics:\n{diag}"
+            )
+
+        try:
+            if main_window.exists() and main_window.is_visible():
+                return main_window
+        except Exception:
+            pass
+
+        # Dump diagnostics every 15 seconds
+        now = time.monotonic()
+        if now - last_diag_time > 15:
+            print(f"\n--- Diagnostics at {int(now - (deadline - timeout))}s ---",
+                  file=sys.stderr)
+            print(_dump_windows_diagnostics(app.process), file=sys.stderr)
+            last_diag_time = now
+
+        time.sleep(1)
+
+    # Final diagnostic dump on timeout
+    diag = _dump_windows_diagnostics(app.process)
+    pytest.fail(
+        f"WPF window 'Media Downloader' did not become visible within {timeout}s.\n"
+        f"Window diagnostics:\n{diag}"
+    )
+
+
 # ── Fixture ───────────────────────────────────────────────────────────────────
 
 
@@ -91,20 +183,19 @@ def _click_stop_and_wait(main_window, timeout: int = 30) -> None:
 def app_window(app_exe_path):
     """Launch the WPF app and yield the main window. Tears down after test."""
     # Kill any leftover instances from previous tests
-    for proc in psutil.process_iter(["name"]):
-        try:
-            if proc.info["name"] and "MediaDownloader" in proc.info["name"]:
-                kill_process_tree(proc)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            pass
+    _kill_all_media_downloader()
     time.sleep(1)
 
     # Skip single-instance mutex check so each test can start a fresh instance
     os.environ["MD_SKIP_MUTEX"] = "1"
 
+    print(f"\nLaunching: {app_exe_path}", file=sys.stderr)
+    print(f"Exe exists: {os.path.isfile(app_exe_path)}", file=sys.stderr)
+
     app = Application(backend="uia").start(app_exe_path)
-    main_window = app.window(title="Media Downloader")
-    main_window.wait("visible", timeout=60)
+    print(f"Process started: PID={app.process}", file=sys.stderr)
+
+    main_window = _find_wpf_window(app, timeout=60)
 
     yield app, main_window
 

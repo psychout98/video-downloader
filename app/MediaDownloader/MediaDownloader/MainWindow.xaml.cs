@@ -28,12 +28,25 @@ public partial class MainWindow : Window
         LogsTab.DataContext = _viewModel.Logs;
         UpdateTab.DataContext = _viewModel.Update;
 
-        // Set tray icon based on status
+        // Set tray icon based on status (may fail on CI/headless)
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         try { UpdateTrayIcon(ServerStatus.Stopped); }
-        catch { /* Tray icon not available (e.g. CI/headless environment) */ }
+        catch { /* Tray icon not available */ }
 
-        Loaded += async (_, _) => await _viewModel.InitializeAsync();
+        Loaded += OnLoaded;
+    }
+
+    private async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await _viewModel.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            // Don't let server startup failures crash the window
+            System.Diagnostics.Debug.WriteLine($"InitializeAsync failed: {ex}");
+        }
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -76,7 +89,8 @@ public partial class MainWindow : Window
         if (WindowState == WindowState.Minimized)
         {
             Hide();
-            TrayIcon.ShowBalloonTip("Media Downloader", "Minimized to system tray.", Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info);
+            try { TrayIcon.ShowBalloonTip("Media Downloader", "Minimized to system tray.", Hardcodet.Wpf.TaskbarNotification.BalloonIcon.Info); }
+            catch { /* Tray not available */ }
         }
     }
 
@@ -91,22 +105,29 @@ public partial class MainWindow : Window
         }
 
         _viewModel.Dispose();
-        TrayIcon.Dispose();
+        try { TrayIcon.Dispose(); } catch { }
     }
 
     private void TrayIcon_DoubleClick(object sender, RoutedEventArgs e) => RestoreWindow();
     private void TrayOpen_Click(object sender, RoutedEventArgs e) => RestoreWindow();
 
     private async void TrayStart_Click(object sender, RoutedEventArgs e)
-        => await _viewModel.InitializeAsync();
+    {
+        try { await _viewModel.InitializeAsync(); }
+        catch { /* best effort */ }
+    }
 
     private async void TrayStop_Click(object sender, RoutedEventArgs e)
-        => await _viewModel.ShutdownAsync();
+    {
+        try { await _viewModel.ShutdownAsync(); }
+        catch { /* best effort */ }
+    }
 
     private async void TrayExit_Click(object sender, RoutedEventArgs e)
     {
         _isExiting = true;
-        await _viewModel.ShutdownAsync();
+        try { await _viewModel.ShutdownAsync(); }
+        catch { /* best effort */ }
         Application.Current.Shutdown();
     }
 
