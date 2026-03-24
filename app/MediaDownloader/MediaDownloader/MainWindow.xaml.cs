@@ -30,7 +30,8 @@ public partial class MainWindow : Window
 
         // Set tray icon based on status
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-        UpdateTrayIcon(ServerStatus.Stopped);
+        try { UpdateTrayIcon(ServerStatus.Stopped); }
+        catch { /* Tray icon not available (e.g. CI/headless environment) */ }
 
         Loaded += async (_, _) => await _viewModel.InitializeAsync();
     }
@@ -43,24 +44,31 @@ public partial class MainWindow : Window
 
     private void UpdateTrayIcon(ServerStatus status)
     {
-        var color = status switch
+        try
         {
-            ServerStatus.Running => Color.LimeGreen,
-            ServerStatus.Starting => Color.Gold,
-            _ => Color.IndianRed
-        };
+            var color = status switch
+            {
+                ServerStatus.Running => Color.LimeGreen,
+                ServerStatus.Starting => Color.Gold,
+                _ => Color.IndianRed
+            };
 
-        // Create a simple colored circle icon
-        using var bmp = new Bitmap(16, 16);
-        using var g = Graphics.FromImage(bmp);
-        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.Clear(Color.Transparent);
-        using var brush = new SolidBrush(color);
-        g.FillEllipse(brush, 1, 1, 14, 14);
+            // Create a simple colored circle icon
+            using var bmp = new Bitmap(16, 16);
+            using var g = Graphics.FromImage(bmp);
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+            using var brush = new SolidBrush(color);
+            g.FillEllipse(brush, 1, 1, 14, 14);
 
-        var hIcon = bmp.GetHicon();
-        TrayIcon.Icon = System.Drawing.Icon.FromHandle(hIcon);
-        TrayIcon.ToolTipText = $"Media Downloader - {_viewModel.StatusText}";
+            var hIcon = bmp.GetHicon();
+            TrayIcon.Icon = System.Drawing.Icon.FromHandle(hIcon);
+            TrayIcon.ToolTipText = $"Media Downloader - {_viewModel.StatusText}";
+        }
+        catch
+        {
+            // Tray icon may not be available in headless/CI environments
+        }
     }
 
     private void Window_StateChanged(object sender, EventArgs e)
