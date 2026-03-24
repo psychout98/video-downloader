@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using MediaDownloader.Server.Configuration;
 using MediaDownloader.Server.Data;
 
@@ -21,6 +22,9 @@ public class DbServiceTests : IAsyncLifetime
 
     public Task DisposeAsync()
     {
+        // Clear SQLite's connection pool so file handles are released on Windows
+        SqliteConnection.ClearAllPools();
+
         if (Directory.Exists(_tempDir))
             Directory.Delete(_tempDir, recursive: true);
         return Task.CompletedTask;
