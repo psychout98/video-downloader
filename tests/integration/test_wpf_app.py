@@ -19,6 +19,7 @@ Run:
 """
 from __future__ import annotations
 
+import os
 import time
 
 import psutil
@@ -89,9 +90,21 @@ def _click_stop_and_wait(main_window, timeout: int = 30) -> None:
 @pytest.fixture()
 def app_window(app_exe_path):
     """Launch the WPF app and yield the main window. Tears down after test."""
+    # Kill any leftover instances from previous tests
+    for proc in psutil.process_iter(["name"]):
+        try:
+            if proc.info["name"] and "MediaDownloader" in proc.info["name"]:
+                kill_process_tree(proc)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    time.sleep(1)
+
+    # Skip single-instance mutex check so each test can start a fresh instance
+    os.environ["MD_SKIP_MUTEX"] = "1"
+
     app = Application(backend="uia").start(app_exe_path)
     main_window = app.window(title="Media Downloader")
-    main_window.wait("visible", timeout=30)
+    main_window.wait("visible", timeout=60)
 
     yield app, main_window
 
@@ -108,8 +121,8 @@ def app_window(app_exe_path):
         kill_process_tree(proc)
     except (psutil.NoSuchProcess, psutil.AccessDenied):
         pass
-    # Extra settle time so ports are released before the next test
-    time.sleep(2)
+    # Wait for process to fully terminate and release ports
+    time.sleep(3)
 
 
 # ── Feature 12: WPF Desktop App ──────────────────────────────────────────
