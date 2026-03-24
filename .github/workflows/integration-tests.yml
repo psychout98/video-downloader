@@ -28,7 +28,7 @@ jobs:
 
       - name: Run unit tests
         working-directory: app/MediaDownloader
-        run: dotnet test --configuration Release --verbosity normal
+        run: dotnet test MediaDownloader.Tests/MediaDownloader.Tests.csproj --configuration Release --verbosity normal
 
   integration:
     runs-on: windows-latest

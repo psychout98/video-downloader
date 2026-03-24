@@ -53,7 +53,7 @@ jobs:
 
       - name: Run tests
         working-directory: app/MediaDownloader
-        run: dotnet test --configuration Release --verbosity normal
+        run: dotnet test MediaDownloader.Tests/MediaDownloader.Tests.csproj --configuration Release --verbosity normal
 
       - name: Publish WPF app
         working-directory: app/MediaDownloader
